@@ -5,17 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LabShortURL — Acortador de URLs</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     * { font-family: 'Inter', sans-serif; }
 
-    .gradient-bg {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-    .card {
-      backdrop-filter: blur(16px);
-      background: rgba(255,255,255,0.95);
-    }
+    .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .card { backdrop-filter: blur(16px); background: rgba(255,255,255,0.97); }
+
     .btn-primary {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       transition: opacity 0.2s, transform 0.1s;
@@ -24,56 +21,78 @@
     .btn-primary:active { transform: translateY(0); }
 
     .copy-btn { transition: all 0.2s; }
-    .copy-btn.copied { background: #10b981; color: white; }
+    .copy-btn.copied { background: #10b981; color: white; border-color: #10b981; }
 
-    .url-card {
-      animation: slideIn 0.3s ease-out;
-    }
+    .url-card { animation: slideIn 0.3s ease-out; }
     @keyframes slideIn {
       from { opacity: 0; transform: translateY(-8px); }
       to   { opacity: 1; transform: translateY(0); }
     }
-    .truncate-url { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     .tab-active {
-      border-bottom: 2px solid #667eea;
-      color: #667eea;
+      border-bottom: 2px solid white;
+      color: white;
       font-weight: 600;
     }
-    .stat-badge {
+    .tab-inactive { color: rgba(255,255,255,0.6); }
+
+    .stat-pill {
       background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    .kpi-card {
+      background: linear-gradient(135deg, #667eea22, #764ba211);
+      border: 1px solid #667eea33;
+    }
+
+    .sparkline-wrap canvas { max-height: 220px; }
+
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    .modal-box {
+      background: white;
+      border-radius: 1.25rem;
+      width: 100%; max-width: 700px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 1.5rem;
+    }
+
+    .device-bar {
+      height: 10px; border-radius: 9999px;
+      background: linear-gradient(90deg, #667eea, #764ba2);
     }
   </style>
 </head>
 <body class="min-h-screen gradient-bg flex flex-col">
 
   <!-- Header -->
-  <header class="py-8 text-center text-white">
+  <header class="py-7 text-center text-white">
     <div class="flex items-center justify-center gap-3 mb-1">
-      <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
         <rect width="36" height="36" rx="10" fill="rgba(255,255,255,0.2)"/>
         <path d="M14 18h8M20 14l4 4-4 4M16 14l-4 4 4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       <h1 class="text-3xl font-bold tracking-tight">LabShortURL</h1>
     </div>
-    <p class="text-white/70 text-sm mt-1">Acorta, comparte y rastrea tus enlaces</p>
+    <p class="text-white/70 text-sm mt-1">Acorta, comparte y analiza tus enlaces</p>
   </header>
 
-  <!-- Main Card -->
+  <!-- Main -->
   <main class="flex-1 flex flex-col items-center px-4 pb-12">
-    <div class="card rounded-2xl shadow-2xl w-full max-w-2xl p-6 mb-6">
 
-      <!-- Form -->
+    <!-- Shorten Card -->
+    <div class="card rounded-2xl shadow-2xl w-full max-w-2xl p-6 mb-6">
       <form id="shortenForm" class="space-y-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">URL a acortar</label>
-          <input
-            id="urlInput"
-            type="url"
-            placeholder="https://ejemplo.com/mi-enlace-muy-largo"
-            required
-            class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition"
-          />
+          <input id="urlInput" type="url" placeholder="https://ejemplo.com/mi-enlace-muy-largo" required
+            class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition"/>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">
@@ -81,12 +100,8 @@
           </label>
           <div class="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-purple-400 transition">
             <span id="basePrefix" class="px-3 py-3 bg-gray-50 text-gray-400 text-sm border-r border-gray-200 whitespace-nowrap">localhost:3000/</span>
-            <input
-              id="aliasInput"
-              type="text"
-              placeholder="mi-enlace"
-              class="flex-1 px-3 py-3 text-sm focus:outline-none bg-white"
-            />
+            <input id="aliasInput" type="text" placeholder="mi-enlace"
+              class="flex-1 px-3 py-3 text-sm focus:outline-none bg-white"/>
           </div>
           <p class="text-xs text-gray-400 mt-1">Letras, números, - y _ (3–30 caracteres)</p>
         </div>
@@ -113,194 +128,376 @@
 
     <!-- Tabs -->
     <div class="w-full max-w-2xl">
-      <div class="flex border-b border-white/30 mb-4">
-        <button onclick="showTab('list')" id="tab-list" class="tab-active px-4 py-2 text-white text-sm">Mis URLs</button>
-        <button onclick="showTab('stats')" id="tab-stats" class="px-4 py-2 text-white/70 text-sm">Estadísticas</button>
+      <div class="flex border-b border-white/30 mb-5 gap-1">
+        <button onclick="showTab('list')"      id="tab-list"      class="tab-active    px-4 py-2 text-sm">Mis URLs</button>
+        <button onclick="showTab('dashboard')" id="tab-dashboard" class="tab-inactive  px-4 py-2 text-sm">Dashboard</button>
       </div>
 
-      <!-- List Tab -->
+      <!-- ── LIST TAB ── -->
       <div id="pane-list">
         <div id="urlList" class="space-y-3">
           <p class="text-white/50 text-sm text-center py-6">Aún no hay URLs acortadas</p>
         </div>
       </div>
 
-      <!-- Stats Tab -->
-      <div id="pane-stats" class="hidden">
+      <!-- ── DASHBOARD TAB ── -->
+      <div id="pane-dashboard" class="hidden space-y-4">
+
+        <!-- KPI row -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div class="card rounded-xl p-4 text-center">
+            <p class="text-xs text-gray-400">URLs creadas</p>
+            <p id="kpi-urls" class="text-3xl font-bold text-purple-600 mt-1">—</p>
+          </div>
+          <div class="card rounded-xl p-4 text-center">
+            <p class="text-xs text-gray-400">Clics totales</p>
+            <p id="kpi-clicks" class="text-3xl font-bold text-purple-600 mt-1">—</p>
+          </div>
+          <div class="card rounded-xl p-4 text-center">
+            <p class="text-xs text-gray-400">Clics 24 h</p>
+            <p id="kpi-24h" class="text-3xl font-bold text-pink-500 mt-1">—</p>
+          </div>
+          <div class="card rounded-xl p-4 text-center">
+            <p class="text-xs text-gray-400">Clics 7 días</p>
+            <p id="kpi-7d" class="text-3xl font-bold text-pink-500 mt-1">—</p>
+          </div>
+        </div>
+
+        <!-- Global clicks chart -->
         <div class="card rounded-xl p-4">
-          <div class="flex gap-2">
-            <input
-              id="statsInput"
-              type="text"
-              placeholder="Código o alias (ej: abc1234)"
-              class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
-            />
-            <button onclick="fetchStats()" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium">Buscar</button>
-          </div>
-          <div id="statsResult" class="mt-4 hidden">
-            <div class="grid grid-cols-2 gap-3 mt-3">
-              <div class="bg-gray-50 rounded-xl p-3">
-                <p class="text-xs text-gray-400">URL Original</p>
-                <p id="s-original" class="text-sm font-medium text-gray-800 truncate mt-1"></p>
-              </div>
-              <div class="bg-gray-50 rounded-xl p-3">
-                <p class="text-xs text-gray-400">Enlace corto</p>
-                <p id="s-short" class="text-sm font-medium text-purple-600 truncate mt-1"></p>
-              </div>
-              <div class="bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl p-3 text-white">
-                <p class="text-xs opacity-70">Total de clics</p>
-                <p id="s-clicks" class="text-3xl font-bold mt-1"></p>
-              </div>
-              <div class="bg-gray-50 rounded-xl p-3">
-                <p class="text-xs text-gray-400">Creado</p>
-                <p id="s-created" class="text-sm font-medium text-gray-800 mt-1"></p>
-              </div>
-            </div>
-          </div>
+          <p class="text-sm font-semibold text-gray-700 mb-3">Clics por día (últimos 30 días)</p>
+          <div class="sparkline-wrap"><canvas id="globalChart"></canvas></div>
+        </div>
+
+        <!-- Top URLs -->
+        <div class="card rounded-xl p-4">
+          <p class="text-sm font-semibold text-gray-700 mb-3">Top 10 URLs más visitadas</p>
+          <div id="topList" class="space-y-2"></div>
         </div>
       </div>
     </div>
   </main>
 
+  <!-- ── ANALYTICS MODAL ── -->
+  <div id="analyticsModal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="flex items-start justify-between mb-4">
+        <div class="flex-1 min-w-0">
+          <h2 class="text-lg font-bold text-gray-800">Analíticas</h2>
+          <a id="modal-short" href="#" target="_blank" class="text-purple-600 text-sm hover:underline truncate block"></a>
+          <p id="modal-original" class="text-gray-400 text-xs truncate mt-0.5"></p>
+        </div>
+        <button onclick="closeModal()" class="ml-3 text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+      </div>
+
+      <!-- KPI mini -->
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="kpi-card rounded-xl p-3 text-center">
+          <p class="text-xs text-gray-500">Total clics</p>
+          <p id="modal-clicks" class="text-3xl font-bold text-purple-600 mt-0.5">0</p>
+        </div>
+        <div class="kpi-card rounded-xl p-3 text-center">
+          <p class="text-xs text-gray-500">Creado</p>
+          <p id="modal-created" class="text-sm font-semibold text-gray-700 mt-1">—</p>
+        </div>
+      </div>
+
+      <!-- Clicks by day chart -->
+      <div class="mb-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Clics por día</p>
+        <div style="max-height:180px"><canvas id="modalDayChart"></canvas></div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+        <!-- Browsers -->
+        <div>
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Navegador</p>
+          <div id="modal-browsers" class="space-y-1.5"></div>
+        </div>
+        <!-- Devices -->
+        <div>
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Dispositivo</p>
+          <div id="modal-devices" class="space-y-1.5"></div>
+        </div>
+        <!-- Referrers -->
+        <div>
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Referrer</p>
+          <div id="modal-referrers" class="space-y-1.5"></div>
+        </div>
+      </div>
+
+      <!-- Recent clicks -->
+      <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Clics recientes</p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-gray-600">
+            <thead>
+              <tr class="border-b text-gray-400">
+                <th class="pb-1 text-left font-medium">Fecha</th>
+                <th class="pb-1 text-left font-medium">Navegador</th>
+                <th class="pb-1 text-left font-medium">Dispositivo</th>
+                <th class="pb-1 text-left font-medium">Referrer</th>
+              </tr>
+            </thead>
+            <tbody id="modal-recent"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     let currentShort = '';
+    let globalChartInst = null;
+    let modalDayChartInst = null;
 
-    // Detect base URL
-    const BASE = window.location.origin;
     document.getElementById('basePrefix').textContent = window.location.host + '/';
 
-    // Shorten form
+    // ── SHORTEN FORM ──
     document.getElementById('shortenForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const url = document.getElementById('urlInput').value.trim();
-      const alias = document.getElementById('aliasInput').value.trim();
       hideError();
+      const url   = document.getElementById('urlInput').value.trim();
+      const alias = document.getElementById('aliasInput').value.trim();
 
-      const res = await fetch('/api/shorten', {
+      const res  = await fetch('/api/shorten', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, alias: alias || undefined }),
       });
       const data = await res.json();
-
-      if (!res.ok) {
-        showError(data.error);
-        return;
-      }
+      if (!res.ok) { showError(data.error); return; }
 
       currentShort = data.short;
       document.getElementById('shortLink').textContent = data.short;
-      document.getElementById('shortLink').href = data.short;
+      document.getElementById('shortLink').href        = data.short;
       document.getElementById('originalDisplay').textContent = data.original;
       document.getElementById('result').classList.remove('hidden');
-      document.getElementById('urlInput').value = '';
+      document.getElementById('urlInput').value  = '';
       document.getElementById('aliasInput').value = '';
       loadUrls();
     });
 
     async function copyShort() {
-      try {
-        await navigator.clipboard.writeText(currentShort);
-        const btn = document.getElementById('copyBtn');
-        btn.textContent = 'Copiado!';
-        btn.classList.add('copied');
-        setTimeout(() => {
-          btn.textContent = 'Copiar';
-          btn.classList.remove('copied');
-        }, 2000);
-      } catch {
-        prompt('Copia este enlace:', currentShort);
-      }
+      await copyToClipboard(currentShort, document.getElementById('copyBtn'));
     }
 
+    async function copyToClipboard(text, btn) {
+      try { await navigator.clipboard.writeText(text); }
+      catch { prompt('Copia este enlace:', text); return; }
+      const orig = btn.textContent;
+      btn.textContent = 'Copiado!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
+    }
+
+    // ── URL LIST ──
     async function loadUrls() {
-      const res = await fetch('/api/urls');
+      const res  = await fetch('/api/urls');
       const urls = await res.json();
       const container = document.getElementById('urlList');
-
       if (urls.length === 0) {
         container.innerHTML = '<p class="text-white/50 text-sm text-center py-6">Aún no hay URLs acortadas</p>';
         return;
       }
-
       container.innerHTML = urls.map(u => `
         <div class="url-card card rounded-xl p-4 flex items-center gap-3">
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <a href="${u.short}" target="_blank" class="text-purple-600 font-semibold text-sm hover:underline">
                 ${u.short.replace(/^https?:\/\//, '')}
               </a>
-              <span class="stat-badge text-white text-xs px-2 py-0.5 rounded-full font-medium">
+              <span class="stat-pill text-white text-xs px-2 py-0.5 rounded-full font-medium">
                 ${u.clicks} clics
               </span>
             </div>
-            <p class="truncate-url text-gray-400 text-xs mt-0.5">${u.original}</p>
+            <p class="text-gray-400 text-xs mt-0.5 truncate" style="max-width:320px">${u.original}</p>
             <p class="text-gray-300 text-xs">${formatDate(u.created_at)}</p>
           </div>
-          <button onclick="copyToClipboard('${u.short}', this)"
-            class="copy-btn flex-shrink-0 border border-gray-200 text-gray-500 text-xs px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
-            Copiar
-          </button>
+          <div class="flex gap-2 flex-shrink-0">
+            <button onclick="openModal('${u.alias || u.code}')"
+              class="border border-purple-200 text-purple-500 text-xs px-3 py-1.5 rounded-lg hover:bg-purple-50 transition">
+              Stats
+            </button>
+            <button onclick="copyToClipboard('${u.short}', this)"
+              class="copy-btn border border-gray-200 text-gray-500 text-xs px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
+              Copiar
+            </button>
+          </div>
         </div>
       `).join('');
     }
 
-    async function copyToClipboard(text, btn) {
-      try {
-        await navigator.clipboard.writeText(text);
-        btn.textContent = 'Copiado!';
-        btn.classList.add('copied');
-        setTimeout(() => {
-          btn.textContent = 'Copiar';
-          btn.classList.remove('copied');
-        }, 2000);
-      } catch {
-        prompt('Copia este enlace:', text);
-      }
-    }
-
-    async function fetchStats() {
-      const code = document.getElementById('statsInput').value.trim();
-      if (!code) return;
-      const res = await fetch(`/api/stats/${encodeURIComponent(code)}`);
+    // ── DASHBOARD ──
+    async function loadDashboard() {
+      const res  = await fetch('/api/analytics');
       const data = await res.json();
-      if (!res.ok) {
-        alert(data.error);
+      const s    = data.summary;
+
+      document.getElementById('kpi-urls').textContent   = s.total_urls;
+      document.getElementById('kpi-clicks').textContent = s.total_clicks;
+      document.getElementById('kpi-24h').textContent    = s.clicks_24h;
+      document.getElementById('kpi-7d').textContent     = s.clicks_7d;
+
+      // Global chart
+      const days   = data.byDay.map(d => d.day).reverse();
+      const counts = data.byDay.map(d => d.count).reverse();
+
+      if (globalChartInst) globalChartInst.destroy();
+      globalChartInst = new Chart(document.getElementById('globalChart'), {
+        type: 'bar',
+        data: {
+          labels: days,
+          datasets: [{
+            label: 'Clics',
+            data: counts,
+            backgroundColor: 'rgba(102,126,234,0.7)',
+            borderRadius: 6,
+            borderSkipped: false,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { maxTicksLimit: 10, font: { size: 10 } }, grid: { display: false } },
+            y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 } } },
+          }
+        }
+      });
+
+      // Top URLs
+      const topList = document.getElementById('topList');
+      if (data.topUrls.length === 0) {
+        topList.innerHTML = '<p class="text-gray-400 text-sm">Sin datos aún</p>';
         return;
       }
-      document.getElementById('s-original').textContent = data.original;
-      document.getElementById('s-short').textContent = data.short;
-      document.getElementById('s-clicks').textContent = data.clicks;
-      document.getElementById('s-created').textContent = formatDate(data.created_at);
-      document.getElementById('statsResult').classList.remove('hidden');
+      const maxClicks = data.topUrls[0].clicks || 1;
+      topList.innerHTML = data.topUrls.map((u, i) => `
+        <div class="flex items-center gap-3 py-1.5">
+          <span class="text-xs font-bold text-gray-300 w-4">${i + 1}</span>
+          <div class="flex-1 min-w-0">
+            <div class="flex justify-between items-center mb-1">
+              <a href="${u.short}" target="_blank" class="text-purple-600 text-xs font-medium hover:underline truncate">
+                ${u.short.replace(/^https?:\/\//, '')}
+              </a>
+              <span class="text-xs font-bold text-gray-700 ml-2">${u.clicks}</span>
+            </div>
+            <div class="w-full bg-gray-100 rounded-full h-1.5">
+              <div class="device-bar h-1.5" style="width:${Math.round((u.clicks / maxClicks) * 100)}%"></div>
+            </div>
+          </div>
+        </div>
+      `).join('');
     }
 
-    function showTab(tab) {
-      ['list', 'stats'].forEach(t => {
-        document.getElementById(`pane-${t}`).classList.toggle('hidden', t !== tab);
-        const el = document.getElementById(`tab-${t}`);
-        el.classList.toggle('tab-active', t === tab);
-        el.classList.toggle('text-white/70', t !== tab);
+    // ── ANALYTICS MODAL ──
+    async function openModal(code) {
+      const res  = await fetch(`/api/analytics/${encodeURIComponent(code)}`);
+      const data = await res.json();
+      if (!res.ok) { alert(data.error); return; }
+
+      document.getElementById('modal-short').textContent = data.short;
+      document.getElementById('modal-short').href        = data.short;
+      document.getElementById('modal-original').textContent = data.original;
+      document.getElementById('modal-clicks').textContent   = data.clicks;
+      document.getElementById('modal-created').textContent  = formatDate(data.created_at);
+
+      // Day chart
+      const days   = data.byDay.map(d => d.day).reverse();
+      const counts = data.byDay.map(d => d.count).reverse();
+      if (modalDayChartInst) modalDayChartInst.destroy();
+      modalDayChartInst = new Chart(document.getElementById('modalDayChart'), {
+        type: 'line',
+        data: {
+          labels: days,
+          datasets: [{
+            label: 'Clics',
+            data: counts,
+            borderColor: '#667eea',
+            backgroundColor: 'rgba(102,126,234,0.1)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 3,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { maxTicksLimit: 7, font: { size: 10 } }, grid: { display: false } },
+            y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 10 } } },
+          }
+        }
       });
+
+      renderBars('modal-browsers',  data.byBrowser);
+      renderBars('modal-devices',   data.byDevice);
+      renderBars('modal-referrers', data.byReferrer);
+
+      const tbody = document.getElementById('modal-recent');
+      tbody.innerHTML = data.recent.length === 0
+        ? '<tr><td colspan="4" class="py-2 text-gray-400">Sin clics aún</td></tr>'
+        : data.recent.map(r => `
+            <tr class="border-b border-gray-50">
+              <td class="py-1 pr-2">${formatDate(r.clicked_at)}</td>
+              <td class="py-1 pr-2">${r.ua_browser || '—'}</td>
+              <td class="py-1 pr-2">${r.ua_device  || '—'}</td>
+              <td class="py-1">${r.referrer || 'Directo'}</td>
+            </tr>`).join('');
+
+      document.getElementById('analyticsModal').classList.remove('hidden');
     }
 
+    function closeModal() {
+      document.getElementById('analyticsModal').classList.add('hidden');
+    }
+    document.getElementById('analyticsModal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeModal();
+    });
+
+    function renderBars(containerId, items) {
+      const el  = document.getElementById(containerId);
+      const max = items[0]?.count || 1;
+      el.innerHTML = items.length === 0
+        ? '<p class="text-gray-400 text-xs">Sin datos</p>'
+        : items.map(it => `
+            <div>
+              <div class="flex justify-between text-xs mb-0.5">
+                <span class="text-gray-600 truncate">${it.label || 'Desconocido'}</span>
+                <span class="text-gray-400 ml-1 flex-shrink-0">${it.count}</span>
+              </div>
+              <div class="w-full bg-gray-100 rounded-full h-1.5">
+                <div class="device-bar h-1.5" style="width:${Math.round((it.count / max) * 100)}%"></div>
+              </div>
+            </div>`).join('');
+    }
+
+    // ── TABS ──
+    function showTab(tab) {
+      ['list', 'dashboard'].forEach(t => {
+        document.getElementById(`pane-${t}`).classList.toggle('hidden', t !== tab);
+        document.getElementById(`tab-${t}`).className = t === tab ? 'tab-active px-4 py-2 text-sm' : 'tab-inactive px-4 py-2 text-sm';
+      });
+      if (tab === 'dashboard') loadDashboard();
+    }
+
+    // ── HELPERS ──
     function formatDate(dt) {
-      return new Date(dt + 'Z').toLocaleDateString('es-ES', {
+      return new Date(dt + (dt.includes('T') ? '' : 'Z')).toLocaleDateString('es-ES', {
         day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
       });
     }
-
     function showError(msg) {
-      const box = document.getElementById('errorBox');
-      box.textContent = msg;
-      box.classList.remove('hidden');
+      const b = document.getElementById('errorBox');
+      b.textContent = msg; b.classList.remove('hidden');
     }
     function hideError() {
       document.getElementById('errorBox').classList.add('hidden');
       document.getElementById('result').classList.add('hidden');
     }
 
-    // Load on start
+    // Init
     loadUrls();
   </script>
 </body>

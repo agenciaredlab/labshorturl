@@ -44,11 +44,7 @@ app.post('/api/shorten', (req, res) => {
 // GET /api/urls
 app.get('/api/urls', (req, res) => {
   const urls = db.getAll();
-  const BASE = BASE_URL;
-  res.json(urls.map(u => ({
-    ...u,
-    short: `${BASE}/${u.alias || u.code}`,
-  })));
+  res.json(urls.map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}` })));
 });
 
 // GET /api/stats/:code
@@ -58,12 +54,30 @@ app.get('/api/stats/:code', (req, res) => {
   res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}` });
 });
 
+// GET /api/analytics/:code  — detailed analytics for one URL
+app.get('/api/analytics/:code', (req, res) => {
+  const entry = db.getStats(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  const analytics = db.getAnalytics(entry.code);
+  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, ...analytics });
+});
+
+// GET /api/analytics  — global dashboard stats
+app.get('/api/analytics', (req, res) => {
+  const global = db.getGlobalStats();
+  const top = db.getTopUrls().map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}` }));
+  res.json({ ...global, topUrls: top });
+});
+
 // GET /:code  — redirect
 app.get('/:code', (req, res) => {
   const { code } = req.params;
   const entry = db.findByCode(code);
   if (!entry) return res.status(404).send('URL no encontrada');
-  db.incrementClicks(entry.code);
+  db.recordClick(entry.code, {
+    referrer: req.headers.referer || req.headers.referrer || '',
+    userAgent: req.headers['user-agent'] || '',
+  });
   res.redirect(301, entry.original);
 });
 
