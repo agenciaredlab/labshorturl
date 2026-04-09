@@ -174,6 +174,19 @@ const stmts = {
     ORDER BY last_checked ASC LIMIT 50
   `),
 
+  updateUrl: db.prepare(`
+    UPDATE urls
+    SET original     = @original,
+        alias        = @alias,
+        max_clicks   = @max_clicks,
+        expires_at   = @expires_at,
+        show_preview = @show_preview
+    WHERE code = @code
+  `),
+
+  deleteUrl:       db.prepare(`DELETE FROM urls WHERE code = ?`),
+  deleteUrlClicks: db.prepare(`DELETE FROM clicks WHERE url_code = ?`),
+
   // API keys
   insertApiKey: db.prepare(`INSERT INTO api_keys (key_hash, prefix, name) VALUES (@key_hash, @prefix, @name)`),
   findApiKey:   db.prepare(`SELECT * FROM api_keys WHERE key_hash = ? LIMIT 1`),
@@ -304,6 +317,24 @@ module.exports = {
   },
   revokeApiKey(id) {
     return stmts.revokeApiKey.run(id);
+  },
+
+  updateUrl(code, { original, alias = null, max_clicks = null, expires_at = null, show_preview = 0 } = {}) {
+    return stmts.updateUrl.run({
+      code,
+      original,
+      alias:       alias || null,
+      max_clicks:  max_clicks || null,
+      expires_at:  expires_at || null,
+      show_preview: show_preview ? 1 : 0,
+    });
+  },
+  deleteUrl(code) {
+    const del = db.transaction(() => {
+      stmts.deleteUrlClicks.run(code);
+      return stmts.deleteUrl.run(code);
+    });
+    return del();
   },
 
   updateHealth(code, status, httpCode = null) {

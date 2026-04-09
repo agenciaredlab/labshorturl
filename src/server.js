@@ -235,6 +235,75 @@ app.post('/api/unlock/:code', async (req, res) => {
   res.json({ url: entry.original });
 });
 
+// PUT /api/urls/:code  — edit a URL
+app.put('/api/urls/:code', async (req, res) => {
+  const entry = db.findByCode(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+
+  const { url, alias, max_clicks, expires_at, show_preview } = req.body;
+
+  if (!url || !isValidUrl(url)) {
+    return res.status(400).json({ error: 'URL inválida. Incluye http:// o https://' });
+  }
+  if (alias && !/^[a-zA-Z0-9_-]{3,30}$/.test(alias)) {
+    return res.status(400).json({ error: 'El alias solo puede contener letras, números, - y _ (3-30 caracteres)' });
+  }
+  if (max_clicks !== undefined && max_clicks !== null && max_clicks !== '') {
+    const n = parseInt(max_clicks);
+    if (!Number.isInteger(n) || n < 1) {
+      return res.status(400).json({ error: 'El límite de clics debe ser un número entero mayor a 0' });
+    }
+  }
+  if (expires_at) {
+    const d = new Date(expires_at);
+    if (isNaN(d.getTime())) {
+      return res.status(400).json({ error: 'Fecha de expiración inválida' });
+    }
+  }
+
+  // If alias changed, check it's not taken by another entry
+  const newAlias = alias || null;
+  if (newAlias && newAlias !== entry.alias) {
+    const existing = db.findByCode(newAlias);
+    if (existing && existing.code !== entry.code) {
+      return res.status(409).json({ error: 'El alias ya está en uso. Elige otro.' });
+    }
+  }
+
+  try {
+    db.updateUrl(entry.code, {
+      original:    url,
+      alias:       newAlias,
+      max_clicks:  max_clicks ? parseInt(max_clicks) : null,
+      expires_at:  expires_at || null,
+      show_preview: !!show_preview,
+    });
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint')) {
+      return res.status(409).json({ error: 'El alias ya está en uso. Elige otro.' });
+    }
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+
+  const updated = db.findByCode(entry.code);
+  res.json({
+    ...updated,
+    short: `${BASE_URL}/${updated.alias || updated.code}`,
+    status: urlStatus(updated),
+    protected: !!updated.password_hash,
+    password_hash: undefined,
+  });
+});
+
+// DELETE /api/urls/:code  — delete a URL and its clicks
+app.delete('/api/urls/:code', (req, res) => {
+  const entry = db.findByCode(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  const info = db.deleteUrl(entry.code);
+  if (info.changes === 0) return res.status(404).json({ error: 'No encontrado' });
+  res.json({ ok: true });
+});
+
 // GET /api/urls?q=&status=all|active|expired|protected|limited&sort=newest|oldest|most|least|alpha
 app.get('/api/urls', (req, res) => {
   const { q = '', status = 'all', sort = 'newest' } = req.query;
