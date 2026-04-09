@@ -16,7 +16,8 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // POST /api/shorten
 app.post('/api/shorten', async (req, res) => {
   const { url, alias, max_clicks, expires_at, password,
-          utm_source, utm_medium, utm_campaign, utm_term, utm_content } = req.body;
+          utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+          show_preview } = req.body;
 
   if (!url || !isValidUrl(url)) {
     return res.status(400).json({ error: 'URL inválida. Incluye http:// o https://' });
@@ -66,6 +67,7 @@ app.post('/api/shorten', async (req, res) => {
       utm_campaign: utm_campaign || null,
       utm_term:     utm_term     || null,
       utm_content:  utm_content  || null,
+      show_preview: !!show_preview,
     });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint')) {
@@ -81,9 +83,36 @@ app.post('/api/shorten', async (req, res) => {
     original:   finalUrl,
     max_clicks: max_clicks || null,
     expires_at: expires_at || null,
-    protected:  !!password,
-    utm:        hasUtm ? utmParams : null,
+    protected:    !!password,
+    show_preview: !!show_preview,
+    utm:          hasUtm ? utmParams : null,
   });
+});
+
+// GET /api/preview/:code  — public metadata for the preview page (no password_hash)
+app.get('/api/preview/:code', (req, res) => {
+  const entry = db.findByCode(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  const status = urlStatus(entry);
+  if (status === 'expired') return res.status(410).json({ error: 'Expirado' });
+  res.json({
+    code:     entry.alias || entry.code,
+    original: entry.original,
+    short:    `${BASE_URL}/${entry.alias || entry.code}`,
+  });
+});
+
+// POST /api/record/:code  — record a click from the preview page
+app.post('/api/record/:code', (req, res) => {
+  const entry = db.findByCode(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  const geo = getGeo(req);
+  db.recordClick(entry.code, {
+    referrer:  req.headers.referer || '',
+    userAgent: req.headers['user-agent'] || '',
+    ...geo,
+  });
+  res.json({ ok: true });
 });
 
 // POST /api/unlock/:code  — verify password, return original URL
@@ -242,9 +271,14 @@ app.get('/:code', (req, res) => {
     return res.status(410).sendFile(path.join(__dirname, '..', 'public', 'expired.html'));
   }
 
-  // Password-protected: show unlock page
+  // Password-protected: show unlock page (takes priority over preview)
   if (entry.password_hash) {
     return res.sendFile(path.join(__dirname, '..', 'public', 'unlock.html'));
+  }
+
+  // Preview countdown page
+  if (entry.show_preview) {
+    return res.sendFile(path.join(__dirname, '..', 'public', 'preview.html'));
   }
 
   const geo = getGeo(req);

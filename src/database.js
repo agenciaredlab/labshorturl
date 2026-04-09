@@ -18,6 +18,7 @@ db.exec(`
     utm_campaign  TEXT,
     utm_term      TEXT,
     utm_content   TEXT,
+    show_preview  INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_code  ON urls(code);
@@ -50,6 +51,7 @@ for (const col of [
   `ALTER TABLE urls ADD COLUMN utm_content TEXT`,
   `ALTER TABLE clicks ADD COLUMN country_code TEXT`,
   `ALTER TABLE clicks ADD COLUMN city TEXT`,
+  `ALTER TABLE urls ADD COLUMN show_preview INTEGER NOT NULL DEFAULT 0`,
 ]) {
   try { db.exec(col); } catch { /* already exists */ }
 }
@@ -57,16 +59,19 @@ for (const col of [
 const stmts = {
   insert: db.prepare(`
     INSERT INTO urls (code, original, alias, max_clicks, expires_at, password_hash,
-                      utm_source, utm_medium, utm_campaign, utm_term, utm_content)
+                      utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+                      show_preview)
     VALUES (@code, @original, @alias, @max_clicks, @expires_at, @password_hash,
-            @utm_source, @utm_medium, @utm_campaign, @utm_term, @utm_content)
+            @utm_source, @utm_medium, @utm_campaign, @utm_term, @utm_content,
+            @show_preview)
   `),
   findByCode: db.prepare(`SELECT * FROM urls WHERE code = ? OR alias = ? LIMIT 1`),
   incrementClicks: db.prepare(`UPDATE urls SET clicks = clicks + 1 WHERE code = ?`),
   getAll: db.prepare(`SELECT * FROM urls ORDER BY created_at DESC LIMIT 100`), // kept for internal use
   getStats: db.prepare(`
     SELECT code, alias, original, clicks, max_clicks, expires_at, password_hash,
-           utm_source, utm_medium, utm_campaign, utm_term, utm_content, created_at
+           utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+           show_preview, created_at
     FROM urls WHERE code = ? OR alias = ? LIMIT 1
   `),
 
@@ -170,6 +175,7 @@ module.exports = {
   createUrl(code, original, {
     alias = null, max_clicks = null, expires_at = null, password_hash = null,
     utm_source = null, utm_medium = null, utm_campaign = null, utm_term = null, utm_content = null,
+    show_preview = 0,
   } = {}) {
     return stmts.insert.run({
       code, original,
@@ -182,6 +188,7 @@ module.exports = {
       utm_campaign: utm_campaign || null,
       utm_term: utm_term || null,
       utm_content: utm_content || null,
+      show_preview: show_preview ? 1 : 0,
     });
   },
   findByCode(code) {

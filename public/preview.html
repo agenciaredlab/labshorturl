@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Redirigiendo… — LabShortURL</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+    .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    /* Circular countdown ring */
+    .ring-track { fill: none; stroke: #e5e7eb; stroke-width: 6; }
+    .ring-progress {
+      fill: none; stroke: url(#ringGradient); stroke-width: 6;
+      stroke-linecap: round;
+      stroke-dasharray: 251.2;       /* 2π × 40 */
+      stroke-dashoffset: 0;
+      transform-origin: center;
+      transform: rotate(-90deg);
+      transition: stroke-dashoffset 1s linear;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.4s ease-out; }
+  </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center px-4">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full fade-in">
+
+    <!-- Header -->
+    <div class="flex items-center gap-2 mb-6">
+      <svg width="24" height="24" viewBox="0 0 36 36" fill="none">
+        <rect width="36" height="36" rx="8" fill="#667eea"/>
+        <path d="M14 18h8M20 14l4 4-4 4M16 14l-4 4 4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="text-sm font-semibold text-gray-500">LabShortURL</span>
+    </div>
+
+    <h1 class="text-lg font-bold text-gray-800 mb-1">Estás siendo redirigido a:</h1>
+    <p class="text-xs text-gray-400 mb-4">Revisa el destino antes de continuar</p>
+
+    <!-- Destination URL -->
+    <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-6">
+      <p class="text-xs text-gray-400 mb-1">URL de destino</p>
+      <a id="destUrl" href="#" target="_blank" rel="noopener noreferrer"
+        class="text-purple-600 text-sm font-medium break-all hover:underline leading-relaxed"></a>
+    </div>
+
+    <!-- Countdown ring + button -->
+    <div class="flex flex-col items-center gap-5">
+      <div class="relative">
+        <svg width="100" height="100" viewBox="0 0 100 100">
+          <defs>
+            <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#667eea"/>
+              <stop offset="100%" stop-color="#764ba2"/>
+            </linearGradient>
+          </defs>
+          <circle class="ring-track" cx="50" cy="50" r="40"/>
+          <circle id="ringProgress" class="ring-progress" cx="50" cy="50" r="40"/>
+        </svg>
+        <div class="absolute inset-0 flex items-center justify-center">
+          <span id="countdown" class="text-3xl font-bold text-gray-800">5</span>
+        </div>
+      </div>
+
+      <div class="flex gap-3 w-full">
+        <button onclick="cancelRedirect()"
+          class="flex-1 border border-gray-200 text-gray-500 font-medium py-2.5 rounded-xl text-sm hover:bg-gray-50 transition">
+          Cancelar
+        </button>
+        <button id="goBtn" onclick="goNow()"
+          class="btn-primary flex-1 text-white font-semibold py-2.5 rounded-xl text-sm">
+          Ir ahora
+        </button>
+      </div>
+    </div>
+
+    <p class="text-center mt-5">
+      <a href="/" class="text-purple-400 text-xs hover:underline">Crear mi propio enlace</a>
+    </p>
+  </div>
+
+  <script>
+    const TOTAL  = 5;       // seconds
+    const CIRCUM = 251.2;   // 2π × 40
+
+    const code = window.location.pathname.replace(/^\//, '');
+    let dest    = '';
+    let timer   = null;
+    let remaining = TOTAL;
+    let cancelled = false;
+
+    const ring      = document.getElementById('ringProgress');
+    const countEl   = document.getElementById('countdown');
+    const destEl    = document.getElementById('destUrl');
+
+    async function init() {
+      try {
+        const res  = await fetch(`/api/preview/${encodeURIComponent(code)}`);
+        const data = await res.json();
+        if (!res.ok) { showError(data.error); return; }
+        dest = data.original;
+        destEl.textContent = dest;
+        destEl.href        = dest;
+        startCountdown();
+      } catch {
+        showError('Error al cargar el destino.');
+      }
+    }
+
+    function startCountdown() {
+      updateRing(TOTAL);
+      timer = setInterval(() => {
+        if (cancelled) return;
+        remaining--;
+        countEl.textContent = remaining;
+        updateRing(remaining);
+        if (remaining <= 0) {
+          clearInterval(timer);
+          goNow();
+        }
+      }, 1000);
+    }
+
+    function updateRing(secs) {
+      const offset = CIRCUM * (1 - secs / TOTAL);
+      ring.style.strokeDashoffset = offset;
+    }
+
+    async function goNow() {
+      clearInterval(timer);
+      if (cancelled) return;
+      // Record the click
+      try {
+        await fetch(`/api/record/${encodeURIComponent(code)}`, { method: 'POST' });
+      } catch {}
+      window.location.href = dest;
+    }
+
+    function cancelRedirect() {
+      cancelled = true;
+      clearInterval(timer);
+      countEl.textContent = '✕';
+      ring.style.strokeDashoffset = CIRCUM;
+      ring.style.stroke = '#e5e7eb';
+      document.getElementById('goBtn').textContent = 'Ir de todas formas';
+      document.querySelector('button[onclick="cancelRedirect()"]').disabled = true;
+    }
+
+    function showError(msg) {
+      document.querySelector('.bg-gray-50').innerHTML =
+        `<p class="text-red-500 text-sm">${msg}</p>`;
+    }
+
+    init();
+  </script>
+</body>
+</html>

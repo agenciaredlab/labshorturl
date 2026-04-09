@@ -202,6 +202,19 @@
           </div>
         </div>
 
+        <!-- Preview toggle -->
+        <label class="flex items-center gap-3 cursor-pointer select-none group">
+          <div class="relative">
+            <input id="showPreviewToggle" type="checkbox" class="sr-only peer"/>
+            <div class="w-10 h-5 bg-gray-200 rounded-full peer-checked:bg-purple-500 transition-colors"></div>
+            <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
+          </div>
+          <div>
+            <span class="text-sm font-medium text-gray-700">Mostrar página de preview</span>
+            <p class="text-xs text-gray-400">El visitante verá el destino con un conteo regresivo de 5 s antes del redirect</p>
+          </div>
+        </label>
+
         <button type="submit" class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm">
           Acortar URL
         </button>
@@ -466,6 +479,7 @@
       const expires_at = document.getElementById('expiresInput').value;
       const max_clicks = document.getElementById('maxClicksInput').value;
       const password    = document.getElementById('passwordInput').value;
+      const show_preview = document.getElementById('showPreviewToggle').checked;
       const utm_source  = document.getElementById('utm_source').value.trim();
       const utm_medium  = document.getElementById('utm_medium').value.trim();
       const utm_campaign= document.getElementById('utm_campaign').value.trim();
@@ -481,6 +495,7 @@
           expires_at:   expires_at  || undefined,
           max_clicks:   max_clicks  ? parseInt(max_clicks) : undefined,
           password:     password    || undefined,
+          show_preview: show_preview || undefined,
           utm_source:   utm_source  || undefined,
           utm_medium:   utm_medium  || undefined,
           utm_campaign: utm_campaign|| undefined,
@@ -501,6 +516,7 @@
       document.getElementById('expiresInput').value   = '';
       document.getElementById('maxClicksInput').value = '';
       document.getElementById('passwordInput').value  = '';
+      document.getElementById('showPreviewToggle').checked = false;
       ['utm_source','utm_medium','utm_campaign','utm_term','utm_content']
         .forEach(id => { document.getElementById(id).value = ''; });
       document.getElementById('utmPreviewBox').classList.add('hidden');
@@ -577,6 +593,9 @@
                   : ''}
               ${u.protected
                 ? '<span class="bg-indigo-100 text-indigo-500 text-xs px-2 py-0.5 rounded-full font-medium">🔒 Protegido</span>'
+                : ''}
+              ${u.show_preview
+                ? '<span class="bg-blue-100 text-blue-500 text-xs px-2 py-0.5 rounded-full font-medium">⏱ Preview</span>'
                 : ''}
             </div>
             <p class="text-gray-400 text-xs mt-0.5 truncate" style="max-width:320px">${u.original}</p>
