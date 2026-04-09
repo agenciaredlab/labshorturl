@@ -13,6 +13,11 @@ db.exec(`
     max_clicks    INTEGER,
     expires_at    TEXT,
     password_hash TEXT,
+    utm_source    TEXT,
+    utm_medium    TEXT,
+    utm_campaign  TEXT,
+    utm_term      TEXT,
+    utm_content   TEXT,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_code  ON urls(code);
@@ -38,6 +43,11 @@ for (const col of [
   `ALTER TABLE urls ADD COLUMN max_clicks INTEGER`,
   `ALTER TABLE urls ADD COLUMN expires_at TEXT`,
   `ALTER TABLE urls ADD COLUMN password_hash TEXT`,
+  `ALTER TABLE urls ADD COLUMN utm_source TEXT`,
+  `ALTER TABLE urls ADD COLUMN utm_medium TEXT`,
+  `ALTER TABLE urls ADD COLUMN utm_campaign TEXT`,
+  `ALTER TABLE urls ADD COLUMN utm_term TEXT`,
+  `ALTER TABLE urls ADD COLUMN utm_content TEXT`,
   `ALTER TABLE clicks ADD COLUMN country_code TEXT`,
   `ALTER TABLE clicks ADD COLUMN city TEXT`,
 ]) {
@@ -46,14 +56,17 @@ for (const col of [
 
 const stmts = {
   insert: db.prepare(`
-    INSERT INTO urls (code, original, alias, max_clicks, expires_at, password_hash)
-    VALUES (@code, @original, @alias, @max_clicks, @expires_at, @password_hash)
+    INSERT INTO urls (code, original, alias, max_clicks, expires_at, password_hash,
+                      utm_source, utm_medium, utm_campaign, utm_term, utm_content)
+    VALUES (@code, @original, @alias, @max_clicks, @expires_at, @password_hash,
+            @utm_source, @utm_medium, @utm_campaign, @utm_term, @utm_content)
   `),
   findByCode: db.prepare(`SELECT * FROM urls WHERE code = ? OR alias = ? LIMIT 1`),
   incrementClicks: db.prepare(`UPDATE urls SET clicks = clicks + 1 WHERE code = ?`),
   getAll: db.prepare(`SELECT * FROM urls ORDER BY created_at DESC LIMIT 100`), // kept for internal use
   getStats: db.prepare(`
-    SELECT code, alias, original, clicks, max_clicks, expires_at, password_hash, created_at
+    SELECT code, alias, original, clicks, max_clicks, expires_at, password_hash,
+           utm_source, utm_medium, utm_campaign, utm_term, utm_content, created_at
     FROM urls WHERE code = ? OR alias = ? LIMIT 1
   `),
 
@@ -154,8 +167,22 @@ function cleanReferrer(ref = '') {
 }
 
 module.exports = {
-  createUrl(code, original, { alias = null, max_clicks = null, expires_at = null, password_hash = null } = {}) {
-    return stmts.insert.run({ code, original, alias: alias || null, max_clicks: max_clicks || null, expires_at: expires_at || null, password_hash: password_hash || null });
+  createUrl(code, original, {
+    alias = null, max_clicks = null, expires_at = null, password_hash = null,
+    utm_source = null, utm_medium = null, utm_campaign = null, utm_term = null, utm_content = null,
+  } = {}) {
+    return stmts.insert.run({
+      code, original,
+      alias: alias || null,
+      max_clicks: max_clicks || null,
+      expires_at: expires_at || null,
+      password_hash: password_hash || null,
+      utm_source: utm_source || null,
+      utm_medium: utm_medium || null,
+      utm_campaign: utm_campaign || null,
+      utm_term: utm_term || null,
+      utm_content: utm_content || null,
+    });
   },
   findByCode(code) {
     return stmts.findByCode.get(code, code);

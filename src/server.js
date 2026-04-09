@@ -15,7 +15,8 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // POST /api/shorten
 app.post('/api/shorten', async (req, res) => {
-  const { url, alias, max_clicks, expires_at, password } = req.body;
+  const { url, alias, max_clicks, expires_at, password,
+          utm_source, utm_medium, utm_campaign, utm_term, utm_content } = req.body;
 
   if (!url || !isValidUrl(url)) {
     return res.status(400).json({ error: 'URL inválida. Incluye http:// o https://' });
@@ -42,12 +43,29 @@ app.post('/api/shorten', async (req, res) => {
   const code = nanoid(7);
   const password_hash = password ? await bcrypt.hash(password, 10) : null;
 
+  // Build final URL with UTM params appended
+  let finalUrl = url;
+  const utmParams = { utm_source, utm_medium, utm_campaign, utm_term, utm_content };
+  const hasUtm = Object.values(utmParams).some(v => v && v.trim());
+  if (hasUtm) {
+    const u = new URL(url);
+    for (const [k, v] of Object.entries(utmParams)) {
+      if (v && v.trim()) u.searchParams.set(k, v.trim());
+    }
+    finalUrl = u.toString();
+  }
+
   try {
-    db.createUrl(code, url, {
+    db.createUrl(code, finalUrl, {
       alias: alias || null,
       max_clicks: max_clicks ? parseInt(max_clicks) : null,
       expires_at: expires_at || null,
       password_hash,
+      utm_source:   utm_source   || null,
+      utm_medium:   utm_medium   || null,
+      utm_campaign: utm_campaign || null,
+      utm_term:     utm_term     || null,
+      utm_content:  utm_content  || null,
     });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint')) {
@@ -58,12 +76,13 @@ app.post('/api/shorten', async (req, res) => {
 
   const shortCode = alias || code;
   res.json({
-    short: `${BASE_URL}/${shortCode}`,
-    code: shortCode,
-    original: url,
+    short:      `${BASE_URL}/${shortCode}`,
+    code:       shortCode,
+    original:   finalUrl,
     max_clicks: max_clicks || null,
     expires_at: expires_at || null,
-    protected: !!password,
+    protected:  !!password,
+    utm:        hasUtm ? utmParams : null,
   });
 });
 
