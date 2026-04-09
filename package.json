@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^9.4.3",
     "express": "^4.18.3",
     "nanoid": "^3.3.7",

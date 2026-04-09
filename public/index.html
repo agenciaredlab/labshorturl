@@ -128,6 +128,24 @@
           </div>
         </div>
 
+        <!-- Password -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Contraseña <span class="text-gray-400 font-normal">(opcional)</span>
+          </label>
+          <div class="relative">
+            <input id="passwordInput" type="password" placeholder="Dejar vacío = sin protección"
+              class="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 transition"/>
+            <button type="button" onclick="toggleFormPwd()" tabindex="-1"
+              class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              <svg id="formEyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">Mínimo 4 caracteres</p>
+        </div>
+
         <button type="submit" class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm">
           Acortar URL
         </button>
@@ -323,6 +341,7 @@
       const alias      = document.getElementById('aliasInput').value.trim();
       const expires_at = document.getElementById('expiresInput').value;
       const max_clicks = document.getElementById('maxClicksInput').value;
+      const password   = document.getElementById('passwordInput').value;
 
       const res  = await fetch('/api/shorten', {
         method: 'POST',
@@ -332,6 +351,7 @@
           alias:      alias      || undefined,
           expires_at: expires_at || undefined,
           max_clicks: max_clicks ? parseInt(max_clicks) : undefined,
+          password:   password   || undefined,
         }),
       });
       const data = await res.json();
@@ -344,8 +364,9 @@
       document.getElementById('result').classList.remove('hidden');
       document.getElementById('urlInput').value      = '';
       document.getElementById('aliasInput').value    = '';
-      document.getElementById('expiresInput').value  = '';
+      document.getElementById('expiresInput').value   = '';
       document.getElementById('maxClicksInput').value = '';
+      document.getElementById('passwordInput').value  = '';
       loadUrls();
     });
 
@@ -386,6 +407,9 @@
                 : u.expires_at || u.max_clicks
                   ? '<span class="bg-amber-100 text-amber-600 text-xs px-2 py-0.5 rounded-full font-medium">Con límite</span>'
                   : ''}
+              ${u.protected
+                ? '<span class="bg-indigo-100 text-indigo-500 text-xs px-2 py-0.5 rounded-full font-medium">🔒 Protegido</span>'
+                : ''}
             </div>
             <p class="text-gray-400 text-xs mt-0.5 truncate" style="max-width:320px">${u.original}</p>
             <div class="flex gap-3 mt-0.5">
@@ -579,6 +603,11 @@
     function hideError() {
       document.getElementById('errorBox').classList.add('hidden');
       document.getElementById('result').classList.add('hidden');
+    }
+
+    function toggleFormPwd() {
+      const inp = document.getElementById('passwordInput');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
     }
 
     // ── QR MODAL ──

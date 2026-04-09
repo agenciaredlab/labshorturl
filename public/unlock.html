@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Enlace protegido — LabShortURL</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+    .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    input:focus { outline: none; box-shadow: 0 0 0 2px #a78bfa; }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-6px); }
+      40%, 80% { transform: translateX(6px); }
+    }
+    .shake { animation: shake 0.4s ease; }
+  </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center px-4">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full">
+
+    <!-- Icon -->
+    <div class="flex justify-center mb-5">
+      <div class="w-16 h-16 rounded-2xl flex items-center justify-center"
+           style="background: linear-gradient(135deg, #667eea22, #764ba211); border: 1.5px solid #667eea44">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+    </div>
+
+    <h1 class="text-xl font-bold text-gray-800 text-center mb-1">Enlace protegido</h1>
+    <p class="text-gray-400 text-sm text-center mb-6">Ingresa la contraseña para acceder</p>
+
+    <form id="unlockForm" class="space-y-4">
+      <div class="relative">
+        <input
+          id="passwordInput"
+          type="password"
+          placeholder="Contraseña"
+          autocomplete="current-password"
+          class="w-full border border-gray-200 rounded-xl px-4 py-3 pr-12 text-sm transition"
+          required
+        />
+        <button type="button" onclick="togglePwd()" tabindex="-1"
+          class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+          <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
+
+      <button type="submit" id="submitBtn"
+        class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm">
+        Acceder
+      </button>
+    </form>
+
+    <div id="errorMsg" class="hidden mt-3 text-center text-red-500 text-sm font-medium"></div>
+
+    <p class="text-center mt-5">
+      <a href="/" class="text-purple-500 text-xs hover:underline">Crear mi propio enlace</a>
+    </p>
+  </div>
+
+  <script>
+    // Extract code from current URL path
+    const code = window.location.pathname.replace(/^\//, '');
+
+    function togglePwd() {
+      const inp = document.getElementById('passwordInput');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    }
+
+    document.getElementById('unlockForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('passwordInput').value;
+      const btn      = document.getElementById('submitBtn');
+      const errEl    = document.getElementById('errorMsg');
+
+      btn.textContent = 'Verificando...';
+      btn.disabled = true;
+      errEl.classList.add('hidden');
+
+      try {
+        const res  = await fetch(`/api/unlock/${encodeURIComponent(code)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Error al verificar';
+          errEl.classList.remove('hidden');
+          document.getElementById('passwordInput').classList.add('shake');
+          setTimeout(() => document.getElementById('passwordInput').classList.remove('shake'), 400);
+          document.getElementById('passwordInput').value = '';
+          document.getElementById('passwordInput').focus();
+        } else {
+          btn.textContent = 'Redirigiendo...';
+          window.location.href = data.url;
+        }
+      } catch {
+        errEl.textContent = 'Error de conexión. Intenta de nuevo.';
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        if (btn.textContent === 'Verificando...') btn.textContent = 'Acceder';
+      }
+    });
+  </script>
+</body>
+</html>
