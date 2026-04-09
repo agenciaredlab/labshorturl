@@ -1,0 +1,81 @@
+const express = require('express');
+const path = require('path');
+const { nanoid } = require('nanoid');
+const db = require('./database');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// POST /api/shorten
+app.post('/api/shorten', (req, res) => {
+  const { url, alias } = req.body;
+
+  if (!url || !isValidUrl(url)) {
+    return res.status(400).json({ error: 'URL inválida. Incluye http:// o https://' });
+  }
+
+  if (alias && !/^[a-zA-Z0-9_-]{3,30}$/.test(alias)) {
+    return res.status(400).json({ error: 'El alias solo puede contener letras, números, - y _  (3-30 caracteres)' });
+  }
+
+  const code = nanoid(7);
+
+  try {
+    db.createUrl(code, url, alias || null);
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint')) {
+      return res.status(409).json({ error: 'El alias ya está en uso. Elige otro.' });
+    }
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+
+  const shortCode = alias || code;
+  res.json({
+    short: `${BASE_URL}/${shortCode}`,
+    code: shortCode,
+    original: url,
+  });
+});
+
+// GET /api/urls
+app.get('/api/urls', (req, res) => {
+  const urls = db.getAll();
+  const BASE = BASE_URL;
+  res.json(urls.map(u => ({
+    ...u,
+    short: `${BASE}/${u.alias || u.code}`,
+  })));
+});
+
+// GET /api/stats/:code
+app.get('/api/stats/:code', (req, res) => {
+  const entry = db.getStats(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}` });
+});
+
+// GET /:code  — redirect
+app.get('/:code', (req, res) => {
+  const { code } = req.params;
+  const entry = db.findByCode(code);
+  if (!entry) return res.status(404).send('URL no encontrada');
+  db.incrementClicks(entry.code);
+  res.redirect(301, entry.original);
+});
+
+app.listen(PORT, () => {
+  console.log(`LabShortURL corriendo en ${BASE_URL}`);
+});
+
+function isValidUrl(str) {
+  try {
+    const u = new URL(str);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}

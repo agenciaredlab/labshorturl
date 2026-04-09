@@ -1,0 +1,15 @@
+{
+  "name": "labshorturl",
+  "version": "1.0.0",
+  "description": "Modern URL Shortener",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "express": "^4.18.3",
+    "nanoid": "^3.3.7"
+  }
+}

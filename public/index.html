@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LabShortURL — Acortador de URLs</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+
+    .gradient-bg {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .card {
+      backdrop-filter: blur(16px);
+      background: rgba(255,255,255,0.95);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .copy-btn { transition: all 0.2s; }
+    .copy-btn.copied { background: #10b981; color: white; }
+
+    .url-card {
+      animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .truncate-url { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .tab-active {
+      border-bottom: 2px solid #667eea;
+      color: #667eea;
+      font-weight: 600;
+    }
+    .stat-badge {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+  </style>
+</head>
+<body class="min-h-screen gradient-bg flex flex-col">
+
+  <!-- Header -->
+  <header class="py-8 text-center text-white">
+    <div class="flex items-center justify-center gap-3 mb-1">
+      <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="36" height="36" rx="10" fill="rgba(255,255,255,0.2)"/>
+        <path d="M14 18h8M20 14l4 4-4 4M16 14l-4 4 4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h1 class="text-3xl font-bold tracking-tight">LabShortURL</h1>
+    </div>
+    <p class="text-white/70 text-sm mt-1">Acorta, comparte y rastrea tus enlaces</p>
+  </header>
+
+  <!-- Main Card -->
+  <main class="flex-1 flex flex-col items-center px-4 pb-12">
+    <div class="card rounded-2xl shadow-2xl w-full max-w-2xl p-6 mb-6">
+
+      <!-- Form -->
+      <form id="shortenForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">URL a acortar</label>
+          <input
+            id="urlInput"
+            type="url"
+            placeholder="https://ejemplo.com/mi-enlace-muy-largo"
+            required
+            class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition"
+          />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            Alias personalizado <span class="text-gray-400 font-normal">(opcional)</span>
+          </label>
+          <div class="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-purple-400 transition">
+            <span id="basePrefix" class="px-3 py-3 bg-gray-50 text-gray-400 text-sm border-r border-gray-200 whitespace-nowrap">localhost:3000/</span>
+            <input
+              id="aliasInput"
+              type="text"
+              placeholder="mi-enlace"
+              class="flex-1 px-3 py-3 text-sm focus:outline-none bg-white"
+            />
+          </div>
+          <p class="text-xs text-gray-400 mt-1">Letras, números, - y _ (3–30 caracteres)</p>
+        </div>
+        <button type="submit" class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm">
+          Acortar URL
+        </button>
+      </form>
+
+      <!-- Result -->
+      <div id="result" class="hidden mt-5 p-4 bg-purple-50 rounded-xl border border-purple-100">
+        <p class="text-xs text-purple-500 font-medium mb-2 uppercase tracking-wide">Tu enlace acortado</p>
+        <div class="flex items-center gap-2">
+          <a id="shortLink" href="#" target="_blank" class="text-purple-700 font-semibold text-base flex-1 truncate hover:underline"></a>
+          <button id="copyBtn" onclick="copyShort()" class="copy-btn px-3 py-1.5 border border-purple-300 text-purple-600 text-xs rounded-lg hover:bg-purple-100 transition">
+            Copiar
+          </button>
+        </div>
+        <p class="text-xs text-gray-400 mt-2 truncate" id="originalDisplay"></p>
+      </div>
+
+      <!-- Error -->
+      <div id="errorBox" class="hidden mt-4 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl"></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="w-full max-w-2xl">
+      <div class="flex border-b border-white/30 mb-4">
+        <button onclick="showTab('list')" id="tab-list" class="tab-active px-4 py-2 text-white text-sm">Mis URLs</button>
+        <button onclick="showTab('stats')" id="tab-stats" class="px-4 py-2 text-white/70 text-sm">Estadísticas</button>
+      </div>
+
+      <!-- List Tab -->
+      <div id="pane-list">
+        <div id="urlList" class="space-y-3">
+          <p class="text-white/50 text-sm text-center py-6">Aún no hay URLs acortadas</p>
+        </div>
+      </div>
+
+      <!-- Stats Tab -->
+      <div id="pane-stats" class="hidden">
+        <div class="card rounded-xl p-4">
+          <div class="flex gap-2">
+            <input
+              id="statsInput"
+              type="text"
+              placeholder="Código o alias (ej: abc1234)"
+              class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+            />
+            <button onclick="fetchStats()" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium">Buscar</button>
+          </div>
+          <div id="statsResult" class="mt-4 hidden">
+            <div class="grid grid-cols-2 gap-3 mt-3">
+              <div class="bg-gray-50 rounded-xl p-3">
+                <p class="text-xs text-gray-400">URL Original</p>
+                <p id="s-original" class="text-sm font-medium text-gray-800 truncate mt-1"></p>
+              </div>
+              <div class="bg-gray-50 rounded-xl p-3">
+                <p class="text-xs text-gray-400">Enlace corto</p>
+                <p id="s-short" class="text-sm font-medium text-purple-600 truncate mt-1"></p>
+              </div>
+              <div class="bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl p-3 text-white">
+                <p class="text-xs opacity-70">Total de clics</p>
+                <p id="s-clicks" class="text-3xl font-bold mt-1"></p>
+              </div>
+              <div class="bg-gray-50 rounded-xl p-3">
+                <p class="text-xs text-gray-400">Creado</p>
+                <p id="s-created" class="text-sm font-medium text-gray-800 mt-1"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let currentShort = '';
+
+    // Detect base URL
+    const BASE = window.location.origin;
+    document.getElementById('basePrefix').textContent = window.location.host + '/';
+
+    // Shorten form
+    document.getElementById('shortenForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const url = document.getElementById('urlInput').value.trim();
+      const alias = document.getElementById('aliasInput').value.trim();
+      hideError();
+
+      const res = await fetch('/api/shorten', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, alias: alias || undefined }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showError(data.error);
+        return;
+      }
+
+      currentShort = data.short;
+      document.getElementById('shortLink').textContent = data.short;
+      document.getElementById('shortLink').href = data.short;
+      document.getElementById('originalDisplay').textContent = data.original;
+      document.getElementById('result').classList.remove('hidden');
+      document.getElementById('urlInput').value = '';
+      document.getElementById('aliasInput').value = '';
+      loadUrls();
+    });
+
+    async function copyShort() {
+      try {
+        await navigator.clipboard.writeText(currentShort);
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = 'Copiado!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'Copiar';
+          btn.classList.remove('copied');
+        }, 2000);
+      } catch {
+        prompt('Copia este enlace:', currentShort);
+      }
+    }
+
+    async function loadUrls() {
+      const res = await fetch('/api/urls');
+      const urls = await res.json();
+      const container = document.getElementById('urlList');
+
+      if (urls.length === 0) {
+        container.innerHTML = '<p class="text-white/50 text-sm text-center py-6">Aún no hay URLs acortadas</p>';
+        return;
+      }
+
+      container.innerHTML = urls.map(u => `
+        <div class="url-card card rounded-xl p-4 flex items-center gap-3">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <a href="${u.short}" target="_blank" class="text-purple-600 font-semibold text-sm hover:underline">
+                ${u.short.replace(/^https?:\/\//, '')}
+              </a>
+              <span class="stat-badge text-white text-xs px-2 py-0.5 rounded-full font-medium">
+                ${u.clicks} clics
+              </span>
+            </div>
+            <p class="truncate-url text-gray-400 text-xs mt-0.5">${u.original}</p>
+            <p class="text-gray-300 text-xs">${formatDate(u.created_at)}</p>
+          </div>
+          <button onclick="copyToClipboard('${u.short}', this)"
+            class="copy-btn flex-shrink-0 border border-gray-200 text-gray-500 text-xs px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
+            Copiar
+          </button>
+        </div>
+      `).join('');
+    }
+
+    async function copyToClipboard(text, btn) {
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = 'Copiado!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'Copiar';
+          btn.classList.remove('copied');
+        }, 2000);
+      } catch {
+        prompt('Copia este enlace:', text);
+      }
+    }
+
+    async function fetchStats() {
+      const code = document.getElementById('statsInput').value.trim();
+      if (!code) return;
+      const res = await fetch(`/api/stats/${encodeURIComponent(code)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error);
+        return;
+      }
+      document.getElementById('s-original').textContent = data.original;
+      document.getElementById('s-short').textContent = data.short;
+      document.getElementById('s-clicks').textContent = data.clicks;
+      document.getElementById('s-created').textContent = formatDate(data.created_at);
+      document.getElementById('statsResult').classList.remove('hidden');
+    }
+
+    function showTab(tab) {
+      ['list', 'stats'].forEach(t => {
+        document.getElementById(`pane-${t}`).classList.toggle('hidden', t !== tab);
+        const el = document.getElementById(`tab-${t}`);
+        el.classList.toggle('tab-active', t === tab);
+        el.classList.toggle('text-white/70', t !== tab);
+      });
+    }
+
+    function formatDate(dt) {
+      return new Date(dt + 'Z').toLocaleDateString('es-ES', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('errorBox');
+      box.textContent = msg;
+      box.classList.remove('hidden');
+    }
+    function hideError() {
+      document.getElementById('errorBox').classList.add('hidden');
+      document.getElementById('result').classList.add('hidden');
+    }
+
+    // Load on start
+    loadUrls();
+  </script>
+</body>
+</html>
