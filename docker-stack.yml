@@ -1,0 +1,76 @@
+# Docker Swarm / Portainer
+#
+# Crear secrets antes de desplegar:
+#   echo "tu-contrasena-segura" | docker secret create labshorturl_admin_pass -
+#   echo "$(openssl rand -hex 32)" | docker secret create labshorturl_session_secret -
+#
+# Desplegar:
+#   docker stack deploy -c docker-stack.yml labshorturl
+#
+# Actualizar imagen:
+#   docker service update --image labshorturl:latest labshorturl_app
+
+version: '3.8'
+
+services:
+  app:
+    image: labshorturl:latest   # construir primero con: docker build -t labshorturl:latest .
+    ports:
+      - target: 3000
+        published: 3000
+        mode: host              # host mode para acceso directo (o usa ingress con nginx)
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      BASE_URL: https://tudominio.com   # ← cambia esto
+      ADMIN_USER: admin
+      # ADMIN_PASS y SESSION_SECRET se inyectan vía Docker secrets (ver abajo)
+      DB_PATH: /app/data/urls.db
+    secrets:
+      - source: labshorturl_admin_pass
+        target: ADMIN_PASS          # montado en /run/secrets/ADMIN_PASS
+      - source: labshorturl_session_secret
+        target: SESSION_SECRET
+    volumes:
+      - db_data:/app/data            # IMPORTANTE: SQLite requiere almacenamiento local
+      - logs:/app/logs
+    deploy:
+      replicas: 1                    # SQLite no soporta múltiples réplicas escribiendo
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: stop-first            # detener antes de actualizar (evita dos instancias con mismo DB)
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      placement:
+        constraints:
+          - node.role == manager     # ancla al nodo manager donde está el volumen local
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  db_data:
+    driver: local
+  logs:
+    driver: local
+
+secrets:
+  labshorturl_admin_pass:
+    external: true
+  labshorturl_session_secret:
+    external: true

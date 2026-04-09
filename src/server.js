@@ -54,12 +54,20 @@ function logError(context, err) {
   }
 }
 
-// ── ADMIN CREDENTIALS (set via env in production) ──
-const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
-if (!process.env.ADMIN_PASS) {
+// ── ADMIN CREDENTIALS ──
+// Docker Swarm monta los secrets como archivos en /run/secrets/<nombre>
+// Si existe el archivo, lo usa; si no, cae al env var; si no, usa default.
+function readSecret(envVar, fallback) {
+  const filePath = `/run/secrets/${envVar}`;
+  try { return require('fs').readFileSync(filePath, 'utf8').trim(); } catch {}
+  return process.env[envVar] || fallback;
+}
+
+const ADMIN_USER = readSecret('ADMIN_USER', 'admin');
+const ADMIN_PASS = readSecret('ADMIN_PASS', 'admin123');
+if (!process.env.ADMIN_PASS && !require('fs').existsSync('/run/secrets/ADMIN_PASS')) {
   console.warn('⚠️  ADVERTENCIA: Usando contraseña de admin por defecto.');
-  console.warn('   Define ADMIN_USER y ADMIN_PASS en tus variables de entorno.');
+  console.warn('   Define ADMIN_PASS como env var o Docker secret en producción.');
 }
 
 app.use(express.json());
@@ -105,7 +113,7 @@ app.use('/api', (req, res, next) => {
 
 // ── SESSION ──
 app.use(session({
-  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  secret: readSecret('SESSION_SECRET', crypto.randomBytes(32).toString('hex')),
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -628,6 +636,18 @@ app.get('/api/export/csv', requireAdmin, (req, res) => {
   res.set('Content-Type', 'text/csv; charset=utf-8');
   res.set('Content-Disposition', `attachment; filename="${filename}"`);
   res.send('\uFEFF' + csv); // BOM for Excel UTF-8 compatibility
+});
+
+// GET /health  — para load balancers, Docker health checks y Kubernetes probes
+app.get('/health', (req, res) => {
+  try {
+    // Verifica que la DB responde
+    db.getGlobalStats();
+    res.json({ status: 'ok', uptime: Math.floor(process.uptime()), db: 'ok' });
+  } catch (err) {
+    logError('GET /health', err);
+    res.status(503).json({ status: 'error', db: 'unreachable' });
+  }
 });
 
 // GET /api/analytics

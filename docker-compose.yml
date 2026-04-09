@@ -1,0 +1,32 @@
+# Para desarrollo local: docker compose up -d
+# Para producción standalone: usa docker-stack.yml con Docker Swarm
+version: '3.8'
+
+services:
+  app:
+    build: .
+    image: labshorturl:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      BASE_URL: http://localhost:3000
+      ADMIN_USER: admin
+      ADMIN_PASS: admin123              # Cambia en producción
+      SESSION_SECRET: dev-secret-local  # Cambia en producción
+      DB_PATH: /app/data/urls.db
+    volumes:
+      - db_data:/app/data   # Persiste la base de datos SQLite
+      - logs:/app/logs      # Persiste los logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  db_data:
+  logs:

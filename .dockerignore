@@ -1,0 +1,12 @@
+node_modules/
+logs/
+*.db
+*.db-shm
+*.db-wal
+.env
+.git/
+.gitignore
+*.md
+ecosystem.config.js
+docker-compose.yml
+docker-stack.yml

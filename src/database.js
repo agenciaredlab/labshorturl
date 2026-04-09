@@ -1,7 +1,17 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
-const db = new Database(path.join(__dirname, '..', 'urls.db'));
+// DB_PATH env var allows Docker volumes to persist data outside the container
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'urls.db');
+const DB_DIR  = path.dirname(DB_PATH);
+if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
+
+const db = new Database(DB_PATH);
+
+// WAL mode: concurrent readers don't block writers, safer under load
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL'); // faster than FULL, safe with WAL
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS urls (
