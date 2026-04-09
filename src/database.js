@@ -47,7 +47,7 @@ const stmts = {
   `),
   findByCode: db.prepare(`SELECT * FROM urls WHERE code = ? OR alias = ? LIMIT 1`),
   incrementClicks: db.prepare(`UPDATE urls SET clicks = clicks + 1 WHERE code = ?`),
-  getAll: db.prepare(`SELECT * FROM urls ORDER BY created_at DESC LIMIT 100`),
+  getAll: db.prepare(`SELECT * FROM urls ORDER BY created_at DESC LIMIT 100`), // kept for internal use
   getStats: db.prepare(`
     SELECT code, alias, original, clicks, max_clicks, expires_at, password_hash, created_at
     FROM urls WHERE code = ? OR alias = ? LIMIT 1
@@ -145,8 +145,43 @@ module.exports = {
     stmts.incrementClicks.run(code);
     stmts.insertClick.run({ code, referrer: cleanReferrer(referrer), browser, device });
   },
-  getAll() {
-    return stmts.getAll.all();
+  getAll({ q = '', status = 'all', sort = 'newest' } = {}) {
+    const conditions = [];
+    const params = [];
+
+    if (q) {
+      conditions.push(`(original LIKE ? OR code LIKE ? OR alias LIKE ?)`);
+      const like = `%${q}%`;
+      params.push(like, like, like);
+    }
+
+    if (status === 'active') {
+      conditions.push(`(expires_at IS NULL OR expires_at > datetime('now'))`);
+      conditions.push(`(max_clicks IS NULL OR clicks < max_clicks)`);
+      conditions.push(`password_hash IS NULL`);
+    } else if (status === 'expired') {
+      conditions.push(`(
+        (expires_at IS NOT NULL AND expires_at <= datetime('now'))
+        OR (max_clicks IS NOT NULL AND clicks >= max_clicks)
+      )`);
+    } else if (status === 'protected') {
+      conditions.push(`password_hash IS NOT NULL`);
+    } else if (status === 'limited') {
+      conditions.push(`(expires_at IS NOT NULL OR max_clicks IS NOT NULL)`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const orderMap = {
+      newest:  'created_at DESC',
+      oldest:  'created_at ASC',
+      most:    'clicks DESC',
+      least:   'clicks ASC',
+      alpha:   'original ASC',
+    };
+    const order = orderMap[sort] || 'created_at DESC';
+
+    return db.prepare(`SELECT * FROM urls ${where} ORDER BY ${order} LIMIT 200`).all(...params);
   },
   getStats(code) {
     return stmts.getStats.get(code, code);

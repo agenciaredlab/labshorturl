@@ -90,9 +90,10 @@ app.post('/api/unlock/:code', async (req, res) => {
   res.json({ url: entry.original });
 });
 
-// GET /api/urls
+// GET /api/urls?q=&status=all|active|expired|protected|limited&sort=newest|oldest|most|least|alpha
 app.get('/api/urls', (req, res) => {
-  const urls = db.getAll();
+  const { q = '', status = 'all', sort = 'newest' } = req.query;
+  const urls = db.getAll({ q: q.trim(), status, sort });
   res.json(urls.map(u => ({
     ...u,
     short: `${BASE_URL}/${u.alias || u.code}`,

@@ -68,6 +68,14 @@
       background: linear-gradient(90deg, #667eea, #764ba2);
     }
 
+    /* Search filters */
+    .filter-btn { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.2); }
+    .filter-btn:hover { background: rgba(255,255,255,0.25); color: white; }
+    .active-filter { background: white !important; color: #667eea !important; border-color: white !important; font-weight: 600; }
+
+    /* Search input clear button */
+    #searchInput::-webkit-search-cancel-button { cursor: pointer; }
+
     /* QR modal */
     #qrModal img { image-rendering: pixelated; }
     .qr-size-btn.active { background: #667eea; color: white; border-color: #667eea; }
@@ -176,6 +184,44 @@
 
       <!-- ── LIST TAB ── -->
       <div id="pane-list">
+
+        <!-- Search & filters -->
+        <div class="space-y-2 mb-4">
+          <!-- Search bar -->
+          <div class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input id="searchInput" type="search" placeholder="Buscar por URL, código o alias…"
+              class="w-full bg-white/20 border border-white/30 text-white placeholder-white/50 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:bg-white/30 transition"/>
+          </div>
+
+          <!-- Filters + Sort row -->
+          <div class="flex flex-wrap gap-2 items-center justify-between">
+            <!-- Status filters -->
+            <div class="flex flex-wrap gap-1.5">
+              <button onclick="setFilter('all')"       id="f-all"       class="filter-btn active-filter text-xs px-3 py-1.5 rounded-lg font-medium transition">Todas</button>
+              <button onclick="setFilter('active')"    id="f-active"    class="filter-btn text-xs px-3 py-1.5 rounded-lg font-medium transition">Activas</button>
+              <button onclick="setFilter('expired')"   id="f-expired"   class="filter-btn text-xs px-3 py-1.5 rounded-lg font-medium transition">Expiradas</button>
+              <button onclick="setFilter('protected')" id="f-protected" class="filter-btn text-xs px-3 py-1.5 rounded-lg font-medium transition">Protegidas</button>
+              <button onclick="setFilter('limited')"   id="f-limited"   class="filter-btn text-xs px-3 py-1.5 rounded-lg font-medium transition">Con límite</button>
+            </div>
+
+            <!-- Sort -->
+            <select id="sortSelect" onchange="loadUrls()"
+              class="bg-white/20 border border-white/30 text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:bg-white/30 transition cursor-pointer">
+              <option value="newest">Más recientes</option>
+              <option value="oldest">Más antiguas</option>
+              <option value="most">Más clics</option>
+              <option value="least">Menos clics</option>
+              <option value="alpha">A → Z</option>
+            </select>
+          </div>
+
+          <!-- Result count -->
+          <p id="resultCount" class="text-white/50 text-xs"></p>
+        </div>
+
         <div id="urlList" class="space-y-3">
           <p class="text-white/50 text-sm text-center py-6">Aún no hay URLs acortadas</p>
         </div>
@@ -383,13 +429,44 @@
       setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
     }
 
+    // ── SEARCH / FILTER STATE ──
+    let currentFilter = 'all';
+    let searchTimer   = null;
+
+    function setFilter(f) {
+      currentFilter = f;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active-filter'));
+      document.getElementById(`f-${f}`).classList.add('active-filter');
+      loadUrls();
+    }
+
+    document.getElementById('searchInput').addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(loadUrls, 280);
+    });
+
     // ── URL LIST ──
     async function loadUrls() {
-      const res  = await fetch('/api/urls');
+      const q    = document.getElementById('searchInput')?.value.trim() || '';
+      const sort = document.getElementById('sortSelect')?.value || 'newest';
+      const params = new URLSearchParams({ q, status: currentFilter, sort });
+      const res  = await fetch(`/api/urls?${params}`);
       const urls = await res.json();
       const container = document.getElementById('urlList');
+
+      // Update result count
+      const countEl = document.getElementById('resultCount');
+      if (countEl) {
+        countEl.textContent = urls.length
+          ? `${urls.length} enlace${urls.length !== 1 ? 's' : ''} encontrado${urls.length !== 1 ? 's' : ''}`
+          : '';
+      }
+
       if (urls.length === 0) {
-        container.innerHTML = '<p class="text-white/50 text-sm text-center py-6">Aún no hay URLs acortadas</p>';
+        const hasFilters = q || currentFilter !== 'all';
+        container.innerHTML = hasFilters
+          ? '<p class="text-white/50 text-sm text-center py-6">Sin resultados para esta búsqueda</p>'
+          : '<p class="text-white/50 text-sm text-center py-6">Aún no hay URLs acortadas</p>';
         return;
       }
       container.innerHTML = urls.map(u => `
