@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const geoip = require('geoip-lite');
 const session = require('express-session');
+const rateLimit = require('express-rate-limit');
 const db = require('./database');
 const { checkOne, checkStale, startBackgroundChecker } = require('./health');
 
@@ -38,6 +39,60 @@ app.use(session({
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// ── RATE LIMITING ──
+// Trusts the X-Forwarded-For header when behind a reverse proxy (nginx, etc.)
+// Set to the number of proxies in front of the app (1 for typical nginx setup)
+if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
+
+const rateLimitHandler = (req, res) => {
+  res.status(429).json({
+    error: 'Demasiadas solicitudes. Espera un momento e intenta de nuevo.',
+    retryAfter: Math.ceil(req.rateLimit.resetTime / 1000 - Date.now() / 1000),
+  });
+};
+
+// Fábrica: 5 intentos cada 15 min, solo cuenta los fallidos (401/429)
+// Cada ruta crítica recibe su propia instancia para contadores independientes
+function makeStrictLimiter() {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: rateLimitHandler,
+    skipSuccessfulRequests: true, // solo cuenta los fallidos
+  });
+}
+const loginLimiter  = makeStrictLimiter();
+const unlockLimiter = makeStrictLimiter();
+
+// 30 req/hora — para creación de URLs (evita spam)
+const shortenLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+});
+
+// 60 req/min — para la API pública en general
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+});
+
+// 120 req/min — para los redirects (alta frecuencia esperada)
+const redirectLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+});
+
 // ── AUTH MIDDLEWARES ──
 function requireAdmin(req, res, next) {
   if (req.session?.admin) return next();
@@ -51,7 +106,7 @@ function requireAdminOrKey(req, res, next) {
 }
 
 // ── ADMIN AUTH ROUTES ──
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', loginLimiter, (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
@@ -116,7 +171,7 @@ app.delete('/api/keys/:id', requireAdmin, (req, res) => {
 });
 
 // POST /api/shorten
-app.post('/api/shorten', requireAdminOrKey, async (req, res) => {
+app.post('/api/shorten', requireAdminOrKey, shortenLimiter, async (req, res) => {
   const { url, alias, max_clicks, expires_at, password,
           utm_source, utm_medium, utm_campaign, utm_term, utm_content,
           show_preview } = req.body;
@@ -254,7 +309,7 @@ app.get('/api/preview/:code', (req, res) => {
 });
 
 // POST /api/record/:code  — record a click from the preview page
-app.post('/api/record/:code', (req, res) => {
+app.post('/api/record/:code', apiLimiter, (req, res) => {
   const entry = db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   const geo = getGeo(req);
@@ -267,7 +322,7 @@ app.post('/api/record/:code', (req, res) => {
 });
 
 // POST /api/unlock/:code  — verify password, return original URL
-app.post('/api/unlock/:code', async (req, res) => {
+app.post('/api/unlock/:code', unlockLimiter, async (req, res) => {
   const entry = db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
 
@@ -415,7 +470,7 @@ app.get('/api/analytics/:code', requireAdmin, (req, res) => {
 });
 
 // GET /api/qr/:code
-app.get('/api/qr/:code', async (req, res) => {
+app.get('/api/qr/:code', apiLimiter, async (req, res) => {
   const entry = db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
 
@@ -507,7 +562,7 @@ app.get('/api/analytics', requireAdmin, (req, res) => {
 });
 
 // GET /:code  — redirect (or show password page)
-app.get('/:code', (req, res) => {
+app.get('/:code', redirectLimiter, (req, res) => {
   const { code } = req.params;
   const entry = db.findByCode(code);
   if (!entry) return res.status(404).sendFile(path.join(__dirname, '..', 'public', 'expired.html'));
