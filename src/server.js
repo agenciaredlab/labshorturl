@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const geoip = require('geoip-lite');
 const session = require('express-session');
 const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 const db = require('./database');
 const { checkOne, checkStale, startBackgroundChecker } = require('./health');
 
@@ -23,6 +24,44 @@ if (!process.env.ADMIN_PASS) {
 }
 
 app.use(express.json());
+
+// ── SECURITY HEADERS ──
+app.use(helmet({
+  // CSP: permite Tailwind CDN, Google Fonts, Chart.js CDN y nuestras APIs
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:     ["'self'"],
+      scriptSrc:      ["'self'", "'unsafe-inline'", 'cdn.tailwindcss.com', 'cdn.jsdelivr.net'],
+      styleSrc:       ["'self'", "'unsafe-inline'", 'cdn.tailwindcss.com', 'fonts.googleapis.com'],
+      fontSrc:        ["'self'", 'fonts.gstatic.com'],
+      imgSrc:         ["'self'", 'data:'],
+      connectSrc:     ["'self'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  // Evita que el navegador haga MIME-type sniffing
+  noSniff: true,
+  // Fuerza HTTPS si NODE_ENV=production
+  hsts: process.env.NODE_ENV === 'production'
+    ? { maxAge: 31536000, includeSubDomains: true }
+    : false,
+  // Oculta el header X-Powered-By: Express
+  hidePoweredBy: true,
+  // Evita clickjacking
+  frameguard: { action: 'deny' },
+  // Evita XSS reflejado en IE (legacy, pero gratis)
+  xssFilter: true,
+  // No cachear respuestas de la API (previene cache de datos sensibles)
+  noCache: false, // manejado manualmente donde aplica
+  // Controla qué información de referrer se envía
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+}));
+
+// No cachear respuestas de la API
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
 
 // ── SESSION ──
 app.use(session({

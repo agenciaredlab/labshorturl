@@ -14,6 +14,7 @@
     "express-rate-limit": "^8.3.2",
     "express-session": "^1.19.0",
     "geoip-lite": "^1.4.10",
+    "helmet": "^8.1.0",
     "nanoid": "^3.3.7",
     "qrcode": "^1.5.4"
   }
