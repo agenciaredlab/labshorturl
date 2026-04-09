@@ -8,12 +8,51 @@ const geoip = require('geoip-lite');
 const session = require('express-session');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const morgan = require('morgan');
+const fs = require('fs');
 const db = require('./database');
 const { checkOne, checkStale, startBackgroundChecker } = require('./health');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+
+// ── LOGGING ──
+const LOG_DIR = path.join(__dirname, '..', 'logs');
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
+
+// Formato personalizado: timestamp + método + url + status + tiempo + ip
+morgan.token('real-ip', req => {
+  const fwd = req.headers['x-forwarded-for'];
+  return fwd ? fwd.split(',')[0].trim() : req.socket.remoteAddress;
+});
+
+const LOG_FORMAT = ':real-ip :method :url :status :response-time ms - :res[content-length]';
+
+// En producción: archivo rotativo diario. En dev: consola coloreada.
+let morganMiddleware;
+if (process.env.NODE_ENV === 'production') {
+  // Nuevo archivo de log por día: logs/access-YYYY-MM-DD.log
+  function getDailyLogStream() {
+    const date = new Date().toISOString().slice(0, 10);
+    return fs.createWriteStream(path.join(LOG_DIR, `access-${date}.log`), { flags: 'a' });
+  }
+  // Recrear el stream cada hora para capturar cambio de día
+  let logStream = getDailyLogStream();
+  setInterval(() => { logStream = getDailyLogStream(); }, 60 * 60 * 1000);
+  morganMiddleware = morgan(LOG_FORMAT, { stream: { write: msg => logStream.write(msg) } });
+} else {
+  morganMiddleware = morgan('dev');
+}
+
+// Logger centralizado para errores de aplicación
+function logError(context, err) {
+  const line = `[${new Date().toISOString()}] ERROR ${context}: ${err?.message || err}\n`;
+  process.stderr.write(line);
+  if (process.env.NODE_ENV === 'production') {
+    fs.appendFile(path.join(LOG_DIR, 'error.log'), line, () => {});
+  }
+}
 
 // ── ADMIN CREDENTIALS (set via env in production) ──
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
@@ -24,6 +63,7 @@ if (!process.env.ADMIN_PASS) {
 }
 
 app.use(express.json());
+app.use(morganMiddleware);
 
 // ── SECURITY HEADERS ──
 app.use(helmet({
@@ -269,6 +309,7 @@ app.post('/api/shorten', requireAdminOrKey, shortenLimiter, async (req, res) => 
     if (err.message.includes('UNIQUE constraint')) {
       return res.status(409).json({ error: 'El alias ya está en uso. Elige otro.' });
     }
+    logError('POST /api/shorten', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 
@@ -433,6 +474,7 @@ app.put('/api/urls/:code', requireAdmin, async (req, res) => {
     if (err.message.includes('UNIQUE constraint')) {
       return res.status(409).json({ error: 'El alias ya está en uso. Elige otro.' });
     }
+    logError('PUT /api/urls/:code', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 
@@ -530,7 +572,8 @@ app.get('/api/qr/:code', apiLimiter, async (req, res) => {
     res.set('Content-Type', 'image/png');
     res.set('Content-Disposition', `inline; filename="qr-${entry.alias || entry.code}.png"`);
     res.send(buffer);
-  } catch {
+  } catch (err) {
+    logError('GET /api/qr/:code', err);
     res.status(500).json({ error: 'Error generando QR' });
   }
 });
@@ -630,10 +673,33 @@ app.get('/:code', redirectLimiter, (req, res) => {
   res.redirect(302, entry.original);
 });
 
-app.listen(PORT, () => {
+// ── EXPRESS ERROR HANDLER (catch-all) ──
+app.use((err, req, res, _next) => {
+  logError(`${req.method} ${req.path}`, err);
+  res.status(500).json({ error: 'Error interno del servidor' });
+});
+
+const server = app.listen(PORT, () => {
   console.log(`LabShortURL corriendo en ${BASE_URL}`);
   startBackgroundChecker();
 });
+
+// ── GRACEFUL SHUTDOWN ──
+function shutdown(signal) {
+  console.log(`\n${signal} recibido. Cerrando servidor…`);
+  server.close(() => {
+    console.log('Servidor cerrado correctamente.');
+    process.exit(0);
+  });
+  // Si no cierra en 10s, forzar
+  setTimeout(() => { process.exit(1); }, 10_000);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+
+// Captura excepciones no manejadas para que queden en el log
+process.on('uncaughtException',  err => { logError('uncaughtException',  err); process.exit(1); });
+process.on('unhandledRejection', err => { logError('unhandledRejection', err); process.exit(1); });
 
 function getGeo(req) {
   const forwarded = req.headers['x-forwarded-for'];

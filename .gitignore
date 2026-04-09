@@ -3,3 +3,4 @@ urls.db
 *.db-shm
 *.db-wal
 .env
+logs/
