@@ -13,7 +13,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // POST /api/shorten
 app.post('/api/shorten', (req, res) => {
-  const { url, alias } = req.body;
+  const { url, alias, max_clicks, expires_at } = req.body;
 
   if (!url || !isValidUrl(url)) {
     return res.status(400).json({ error: 'URL inválida. Incluye http:// o https://' });
@@ -23,10 +23,28 @@ app.post('/api/shorten', (req, res) => {
     return res.status(400).json({ error: 'El alias solo puede contener letras, números, - y _  (3-30 caracteres)' });
   }
 
+  if (max_clicks !== undefined && max_clicks !== null) {
+    const n = parseInt(max_clicks);
+    if (!Number.isInteger(n) || n < 1) {
+      return res.status(400).json({ error: 'El límite de clics debe ser un número entero mayor a 0' });
+    }
+  }
+
+  if (expires_at) {
+    const d = new Date(expires_at);
+    if (isNaN(d.getTime()) || d <= new Date()) {
+      return res.status(400).json({ error: 'La fecha de expiración debe ser futura' });
+    }
+  }
+
   const code = nanoid(7);
 
   try {
-    db.createUrl(code, url, alias || null);
+    db.createUrl(code, url, {
+      alias: alias || null,
+      max_clicks: max_clicks ? parseInt(max_clicks) : null,
+      expires_at: expires_at || null,
+    });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint')) {
       return res.status(409).json({ error: 'El alias ya está en uso. Elige otro.' });
@@ -39,31 +57,33 @@ app.post('/api/shorten', (req, res) => {
     short: `${BASE_URL}/${shortCode}`,
     code: shortCode,
     original: url,
+    max_clicks: max_clicks || null,
+    expires_at: expires_at || null,
   });
 });
 
 // GET /api/urls
 app.get('/api/urls', (req, res) => {
   const urls = db.getAll();
-  res.json(urls.map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}` })));
+  res.json(urls.map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u) })));
 });
 
 // GET /api/stats/:code
 app.get('/api/stats/:code', (req, res) => {
   const entry = db.getStats(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}` });
+  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry) });
 });
 
-// GET /api/analytics/:code  — detailed analytics for one URL
+// GET /api/analytics/:code
 app.get('/api/analytics/:code', (req, res) => {
   const entry = db.getStats(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   const analytics = db.getAnalytics(entry.code);
-  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, ...analytics });
+  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), ...analytics });
 });
 
-// GET /api/qr/:code  — QR code as PNG or SVG
+// GET /api/qr/:code
 app.get('/api/qr/:code', async (req, res) => {
   const entry = db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
@@ -90,28 +110,41 @@ app.get('/api/qr/:code', async (req, res) => {
   }
 });
 
-// GET /api/analytics  — global dashboard stats
+// GET /api/analytics
 app.get('/api/analytics', (req, res) => {
   const global = db.getGlobalStats();
-  const top = db.getTopUrls().map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}` }));
+  const top = db.getTopUrls().map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u) }));
   res.json({ ...global, topUrls: top });
 });
 
-// GET /:code  — redirect
+// GET /:code  — redirect with expiration check
 app.get('/:code', (req, res) => {
   const { code } = req.params;
   const entry = db.findByCode(code);
-  if (!entry) return res.status(404).send('URL no encontrada');
+  if (!entry) return res.status(404).sendFile(path.join(__dirname, '..', 'public', 'expired.html'));
+
+  const status = urlStatus(entry);
+  if (status === 'expired') {
+    return res.status(410).sendFile(path.join(__dirname, '..', 'public', 'expired.html'));
+  }
+
   db.recordClick(entry.code, {
     referrer: req.headers.referer || req.headers.referrer || '',
     userAgent: req.headers['user-agent'] || '',
   });
-  res.redirect(301, entry.original);
+  res.redirect(302, entry.original);
 });
 
 app.listen(PORT, () => {
   console.log(`LabShortURL corriendo en ${BASE_URL}`);
 });
+
+// 'active' | 'expired'
+function urlStatus(entry) {
+  if (entry.expires_at && new Date(entry.expires_at) < new Date()) return 'expired';
+  if (entry.max_clicks && entry.clicks >= entry.max_clicks) return 'expired';
+  return 'active';
+}
 
 function isValidUrl(str) {
   try {

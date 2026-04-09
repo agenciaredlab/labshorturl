@@ -109,6 +109,25 @@
           </div>
           <p class="text-xs text-gray-400 mt-1">Letras, números, - y _ (3–30 caracteres)</p>
         </div>
+
+        <!-- Expiration row -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Expira el <span class="text-gray-400 font-normal">(opcional)</span>
+            </label>
+            <input id="expiresInput" type="datetime-local"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 transition text-gray-700"/>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Límite de clics <span class="text-gray-400 font-normal">(opcional)</span>
+            </label>
+            <input id="maxClicksInput" type="number" min="1" placeholder="Sin límite"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 transition"/>
+          </div>
+        </div>
+
         <button type="submit" class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm">
           Acortar URL
         </button>
@@ -300,13 +319,20 @@
     document.getElementById('shortenForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       hideError();
-      const url   = document.getElementById('urlInput').value.trim();
-      const alias = document.getElementById('aliasInput').value.trim();
+      const url        = document.getElementById('urlInput').value.trim();
+      const alias      = document.getElementById('aliasInput').value.trim();
+      const expires_at = document.getElementById('expiresInput').value;
+      const max_clicks = document.getElementById('maxClicksInput').value;
 
       const res  = await fetch('/api/shorten', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, alias: alias || undefined }),
+        body: JSON.stringify({
+          url,
+          alias:      alias      || undefined,
+          expires_at: expires_at || undefined,
+          max_clicks: max_clicks ? parseInt(max_clicks) : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) { showError(data.error); return; }
@@ -316,8 +342,10 @@
       document.getElementById('shortLink').href        = data.short;
       document.getElementById('originalDisplay').textContent = data.original;
       document.getElementById('result').classList.remove('hidden');
-      document.getElementById('urlInput').value  = '';
-      document.getElementById('aliasInput').value = '';
+      document.getElementById('urlInput').value      = '';
+      document.getElementById('aliasInput').value    = '';
+      document.getElementById('expiresInput').value  = '';
+      document.getElementById('maxClicksInput').value = '';
       loadUrls();
     });
 
@@ -344,18 +372,26 @@
         return;
       }
       container.innerHTML = urls.map(u => `
-        <div class="url-card card rounded-xl p-4 flex items-center gap-3">
+        <div class="url-card card rounded-xl p-4 flex items-center gap-3 ${u.status === 'expired' ? 'opacity-60' : ''}">
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <a href="${u.short}" target="_blank" class="text-purple-600 font-semibold text-sm hover:underline">
                 ${u.short.replace(/^https?:\/\//, '')}
               </a>
               <span class="stat-pill text-white text-xs px-2 py-0.5 rounded-full font-medium">
-                ${u.clicks} clics
+                ${u.clicks}${u.max_clicks ? '/' + u.max_clicks : ''} clics
               </span>
+              ${u.status === 'expired'
+                ? '<span class="bg-red-100 text-red-500 text-xs px-2 py-0.5 rounded-full font-medium">Expirado</span>'
+                : u.expires_at || u.max_clicks
+                  ? '<span class="bg-amber-100 text-amber-600 text-xs px-2 py-0.5 rounded-full font-medium">Con límite</span>'
+                  : ''}
             </div>
             <p class="text-gray-400 text-xs mt-0.5 truncate" style="max-width:320px">${u.original}</p>
-            <p class="text-gray-300 text-xs">${formatDate(u.created_at)}</p>
+            <div class="flex gap-3 mt-0.5">
+              <p class="text-gray-300 text-xs">${formatDate(u.created_at)}</p>
+              ${u.expires_at ? `<p class="text-amber-400 text-xs">Expira: ${formatDate(u.expires_at)}</p>` : ''}
+            </div>
           </div>
           <div class="flex gap-2 flex-shrink-0">
             <button onclick="openQR('${u.alias || u.code}')"

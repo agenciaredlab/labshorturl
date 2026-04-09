@@ -10,6 +10,8 @@ db.exec(`
     original   TEXT    NOT NULL,
     alias      TEXT    UNIQUE,
     clicks     INTEGER NOT NULL DEFAULT 0,
+    max_clicks INTEGER,
+    expires_at TEXT,
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_code  ON urls(code);
@@ -28,12 +30,26 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_clicks_at   ON clicks(clicked_at);
 `);
 
+// Migrate: add columns if they don't exist yet (idempotent)
+for (const col of [
+  `ALTER TABLE urls ADD COLUMN max_clicks INTEGER`,
+  `ALTER TABLE urls ADD COLUMN expires_at TEXT`,
+]) {
+  try { db.exec(col); } catch { /* already exists */ }
+}
+
 const stmts = {
-  insert: db.prepare(`INSERT INTO urls (code, original, alias) VALUES (@code, @original, @alias)`),
+  insert: db.prepare(`
+    INSERT INTO urls (code, original, alias, max_clicks, expires_at)
+    VALUES (@code, @original, @alias, @max_clicks, @expires_at)
+  `),
   findByCode: db.prepare(`SELECT * FROM urls WHERE code = ? OR alias = ? LIMIT 1`),
   incrementClicks: db.prepare(`UPDATE urls SET clicks = clicks + 1 WHERE code = ?`),
   getAll: db.prepare(`SELECT * FROM urls ORDER BY created_at DESC LIMIT 100`),
-  getStats: db.prepare(`SELECT code, alias, original, clicks, created_at FROM urls WHERE code = ? OR alias = ? LIMIT 1`),
+  getStats: db.prepare(`
+    SELECT code, alias, original, clicks, max_clicks, expires_at, created_at
+    FROM urls WHERE code = ? OR alias = ? LIMIT 1
+  `),
 
   insertClick: db.prepare(`
     INSERT INTO clicks (url_code, referrer, ua_browser, ua_device)
@@ -65,7 +81,7 @@ const stmts = {
   `),
 
   topUrls: db.prepare(`
-    SELECT u.code, u.alias, u.original, u.clicks, u.created_at
+    SELECT u.code, u.alias, u.original, u.clicks, u.created_at, u.max_clicks, u.expires_at
     FROM urls u ORDER BY u.clicks DESC LIMIT 10
   `),
 
@@ -92,11 +108,11 @@ const stmts = {
 
 function parseUA(ua = '') {
   let browser = 'Otro';
-  if (/Edg\//i.test(ua))         browser = 'Edge';
-  else if (/OPR\//i.test(ua))    browser = 'Opera';
-  else if (/Chrome\//i.test(ua)) browser = 'Chrome';
+  if (/Edg\//i.test(ua))          browser = 'Edge';
+  else if (/OPR\//i.test(ua))     browser = 'Opera';
+  else if (/Chrome\//i.test(ua))  browser = 'Chrome';
   else if (/Firefox\//i.test(ua)) browser = 'Firefox';
-  else if (/Safari\//i.test(ua)) browser = 'Safari';
+  else if (/Safari\//i.test(ua))  browser = 'Safari';
   else if (/curl|wget|python|axios|node/i.test(ua)) browser = 'Bot/API';
 
   let device = 'Desktop';
@@ -116,8 +132,8 @@ function cleanReferrer(ref = '') {
 }
 
 module.exports = {
-  createUrl(code, original, alias = null) {
-    return stmts.insert.run({ code, original, alias: alias || null });
+  createUrl(code, original, { alias = null, max_clicks = null, expires_at = null } = {}) {
+    return stmts.insert.run({ code, original, alias: alias || null, max_clicks: max_clicks || null, expires_at: expires_at || null });
   },
   findByCode(code) {
     return stmts.findByCode.get(code, code);
