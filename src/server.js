@@ -3,6 +3,7 @@ const path = require('path');
 const { nanoid } = require('nanoid');
 const QRCode = require('qrcode');
 const bcrypt = require('bcryptjs');
+const geoip = require('geoip-lite');
 const db = require('./database');
 
 const app = express();
@@ -82,9 +83,11 @@ app.post('/api/unlock/:code', async (req, res) => {
   if (!match) return res.status(401).json({ error: 'Contraseña incorrecta' });
 
   // Record click after successful unlock
+  const geo = getGeo(req);
   db.recordClick(entry.code, {
-    referrer: req.headers.referer || '',
+    referrer:  req.headers.referer || '',
     userAgent: req.headers['user-agent'] || '',
+    ...geo,
   });
 
   res.json({ url: entry.original });
@@ -225,9 +228,11 @@ app.get('/:code', (req, res) => {
     return res.sendFile(path.join(__dirname, '..', 'public', 'unlock.html'));
   }
 
+  const geo = getGeo(req);
   db.recordClick(entry.code, {
-    referrer: req.headers.referer || req.headers.referrer || '',
+    referrer:  req.headers.referer || req.headers.referrer || '',
     userAgent: req.headers['user-agent'] || '',
+    ...geo,
   });
   res.redirect(302, entry.original);
 });
@@ -235,6 +240,35 @@ app.get('/:code', (req, res) => {
 app.listen(PORT, () => {
   console.log(`LabShortURL corriendo en ${BASE_URL}`);
 });
+
+function getGeo(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = forwarded ? forwarded.split(',')[0].trim() : req.socket.remoteAddress;
+  // Strip IPv6 prefix from IPv4-mapped addresses
+  const clean = ip?.replace(/^::ffff:/, '') || '';
+  const geo = geoip.lookup(clean);
+  return {
+    country:      geo?.country ? isoToName(geo.country) : null,
+    country_code: geo?.country || null,
+    city:         geo?.city    || null,
+  };
+}
+
+// ISO 3166-1 alpha-2 to country name (common subset)
+function isoToName(code) {
+  const map = {
+    AR:'Argentina', BO:'Bolivia', BR:'Brasil', CL:'Chile', CO:'Colombia',
+    CR:'Costa Rica', CU:'Cuba', DO:'Rep. Dominicana', EC:'Ecuador',
+    SV:'El Salvador', GT:'Guatemala', HN:'Honduras', MX:'México',
+    NI:'Nicaragua', PA:'Panamá', PY:'Paraguay', PE:'Perú', PR:'Puerto Rico',
+    ES:'España', UY:'Uruguay', VE:'Venezuela',
+    US:'Estados Unidos', CA:'Canadá', GB:'Reino Unido', DE:'Alemania',
+    FR:'Francia', IT:'Italia', PT:'Portugal', NL:'Países Bajos',
+    CN:'China', JP:'Japón', KR:'Corea del Sur', IN:'India',
+    AU:'Australia', RU:'Rusia', ZA:'Sudáfrica', NG:'Nigeria', EG:'Egipto',
+  };
+  return map[code] || code;
+}
 
 function urlStatus(entry) {
   if (entry.expires_at && new Date(entry.expires_at) < new Date()) return 'expired';

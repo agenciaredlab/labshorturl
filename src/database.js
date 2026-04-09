@@ -25,7 +25,9 @@ db.exec(`
     referrer   TEXT,
     ua_browser TEXT,
     ua_device  TEXT,
-    country    TEXT
+    country    TEXT,
+    country_code TEXT,
+    city       TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_clicks_code ON clicks(url_code);
   CREATE INDEX IF NOT EXISTS idx_clicks_at   ON clicks(clicked_at);
@@ -36,6 +38,8 @@ for (const col of [
   `ALTER TABLE urls ADD COLUMN max_clicks INTEGER`,
   `ALTER TABLE urls ADD COLUMN expires_at TEXT`,
   `ALTER TABLE urls ADD COLUMN password_hash TEXT`,
+  `ALTER TABLE clicks ADD COLUMN country_code TEXT`,
+  `ALTER TABLE clicks ADD COLUMN city TEXT`,
 ]) {
   try { db.exec(col); } catch { /* already exists */ }
 }
@@ -54,8 +58,8 @@ const stmts = {
   `),
 
   insertClick: db.prepare(`
-    INSERT INTO clicks (url_code, referrer, ua_browser, ua_device)
-    VALUES (@code, @referrer, @browser, @device)
+    INSERT INTO clicks (url_code, referrer, ua_browser, ua_device, country, country_code, city)
+    VALUES (@code, @referrer, @browser, @device, @country, @country_code, @city)
   `),
 
   clicksByDay: db.prepare(`
@@ -87,8 +91,24 @@ const stmts = {
     FROM urls u ORDER BY u.clicks DESC LIMIT 10
   `),
 
+  clicksByCountry: db.prepare(`
+    SELECT COALESCE(country, 'Desconocido') AS label,
+           country_code,
+           COUNT(*) AS count
+    FROM clicks WHERE url_code = ?
+    GROUP BY country ORDER BY count DESC LIMIT 15
+  `),
+
+  globalClicksByCountry: db.prepare(`
+    SELECT COALESCE(country, 'Desconocido') AS label,
+           country_code,
+           COUNT(*) AS count
+    FROM clicks
+    GROUP BY country ORDER BY count DESC LIMIT 15
+  `),
+
   recentClicks: db.prepare(`
-    SELECT clicked_at, referrer, ua_browser, ua_device
+    SELECT clicked_at, referrer, ua_browser, ua_device, country, country_code, city
     FROM clicks WHERE url_code = ?
     ORDER BY clicked_at DESC LIMIT 20
   `),
@@ -140,10 +160,10 @@ module.exports = {
   findByCode(code) {
     return stmts.findByCode.get(code, code);
   },
-  recordClick(code, { referrer, userAgent } = {}) {
+  recordClick(code, { referrer, userAgent, country = null, country_code = null, city = null } = {}) {
     const { browser, device } = parseUA(userAgent);
     stmts.incrementClicks.run(code);
-    stmts.insertClick.run({ code, referrer: cleanReferrer(referrer), browser, device });
+    stmts.insertClick.run({ code, referrer: cleanReferrer(referrer), browser, device, country, country_code, city });
   },
   getAll({ q = '', status = 'all', sort = 'newest' } = {}) {
     const conditions = [];
@@ -192,6 +212,7 @@ module.exports = {
       byBrowser:  stmts.clicksByBrowser.all(code),
       byDevice:   stmts.clicksByDevice.all(code),
       byReferrer: stmts.clicksByReferrer.all(code),
+      byCountry:  stmts.clicksByCountry.all(code),
       recent:     stmts.recentClicks.all(code),
     };
   },
@@ -200,8 +221,9 @@ module.exports = {
   },
   getGlobalStats() {
     return {
-      summary: stmts.globalStats.get(),
-      byDay:   stmts.globalClicksByDay.all(),
+      summary:   stmts.globalStats.get(),
+      byDay:     stmts.globalClicksByDay.all(),
+      byCountry: stmts.globalClicksByCountry.all(),
     };
   },
 };

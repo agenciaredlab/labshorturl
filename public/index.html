@@ -267,6 +267,12 @@
           <div class="sparkline-wrap"><canvas id="globalChart"></canvas></div>
         </div>
 
+        <!-- Top countries global -->
+        <div class="card rounded-xl p-4">
+          <p class="text-sm font-semibold text-gray-700 mb-3">Clics por país</p>
+          <div id="globalCountryList" class="space-y-1.5"></div>
+        </div>
+
         <!-- Top URLs -->
         <div class="card rounded-xl p-4">
           <p class="text-sm font-semibold text-gray-700 mb-3">Top 10 URLs más visitadas</p>
@@ -345,6 +351,12 @@
         <div style="max-height:180px"><canvas id="modalDayChart"></canvas></div>
       </div>
 
+      <!-- Countries -->
+      <div class="mb-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Países</p>
+        <div id="modal-countries" class="space-y-1.5"></div>
+      </div>
+
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
         <!-- Browsers -->
         <div>
@@ -374,6 +386,7 @@
                 <th class="pb-1 text-left font-medium">Navegador</th>
                 <th class="pb-1 text-left font-medium">Dispositivo</th>
                 <th class="pb-1 text-left font-medium">Referrer</th>
+                <th class="pb-1 text-left font-medium">País / Ciudad</th>
               </tr>
             </thead>
             <tbody id="modal-recent"></tbody>
@@ -562,6 +575,9 @@
         }
       });
 
+      // Global countries
+      renderCountryBars('globalCountryList', data.byCountry);
+
       // Top URLs
       const topList = document.getElementById('topList');
       if (data.topUrls.length === 0) {
@@ -627,19 +643,21 @@
         }
       });
 
+      renderCountryBars('modal-countries', data.byCountry);
       renderBars('modal-browsers',  data.byBrowser);
       renderBars('modal-devices',   data.byDevice);
       renderBars('modal-referrers', data.byReferrer);
 
       const tbody = document.getElementById('modal-recent');
       tbody.innerHTML = data.recent.length === 0
-        ? '<tr><td colspan="4" class="py-2 text-gray-400">Sin clics aún</td></tr>'
+        ? '<tr><td colspan="5" class="py-2 text-gray-400">Sin clics aún</td></tr>'
         : data.recent.map(r => `
             <tr class="border-b border-gray-50">
-              <td class="py-1 pr-2">${formatDate(r.clicked_at)}</td>
+              <td class="py-1 pr-2 whitespace-nowrap">${formatDate(r.clicked_at)}</td>
               <td class="py-1 pr-2">${r.ua_browser || '—'}</td>
               <td class="py-1 pr-2">${r.ua_device  || '—'}</td>
-              <td class="py-1">${r.referrer || 'Directo'}</td>
+              <td class="py-1 pr-2">${r.referrer   || 'Directo'}</td>
+              <td class="py-1">${r.country_code ? flag(r.country_code) + ' ' : ''}${r.city ? r.city + ', ' : ''}${r.country || '—'}</td>
             </tr>`).join('');
 
       document.getElementById('analyticsModal').classList.remove('hidden');
@@ -651,6 +669,33 @@
     document.getElementById('analyticsModal').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) closeModal();
     });
+
+    // Convert ISO country code to flag emoji
+    function flag(code) {
+      if (!code || code.length !== 2) return '🌐';
+      return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+    }
+
+    function renderCountryBars(containerId, items = []) {
+      const el  = document.getElementById(containerId);
+      if (!el) return;
+      const max = items[0]?.count || 1;
+      el.innerHTML = items.length === 0
+        ? '<p class="text-gray-400 text-sm">Sin datos aún</p>'
+        : items.map(it => `
+            <div class="flex items-center gap-2">
+              <span class="text-base w-6 text-center flex-shrink-0">${flag(it.country_code)}</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex justify-between text-xs mb-0.5">
+                  <span class="text-gray-600 truncate">${it.label}</span>
+                  <span class="text-gray-400 ml-2 flex-shrink-0">${it.count}</span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-1.5">
+                  <div class="device-bar h-1.5" style="width:${Math.round((it.count / max) * 100)}%"></div>
+                </div>
+              </div>
+            </div>`).join('');
+    }
 
     function renderBars(containerId, items) {
       const el  = document.getElementById(containerId);
