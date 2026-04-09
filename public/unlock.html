@@ -4,11 +4,13 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Enlace protegido — LabShortURL</title>
+  <script>if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark');</script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     * { font-family: 'Inter', sans-serif; }
     .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .dark .gradient-bg { background: linear-gradient(135deg, #1a1730 0%, #12101e 100%); }
     .btn-primary {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       transition: opacity 0.2s, transform 0.1s;
@@ -22,10 +24,23 @@
       40%, 80% { transform: translateX(6px); }
     }
     .shake { animation: shake 0.4s ease; }
+
+    /* Dark mode card */
+    .dark .card { background: #1e1b2e !important; border: 1px solid #2d2a42; }
+    .dark .card h1 { color: #f1f0fb; }
+    .dark .card p  { color: #9ca3af; }
+    .dark .card input {
+      background: #2d2a42;
+      border-color: #3d3a52;
+      color: #f1f0fb;
+    }
+    .dark .card input::placeholder { color: #6b7280; }
+    .dark .card a { color: #a78bfa; }
+    .dark #errorMsg { color: #f87171; }
   </style>
 </head>
 <body class="gradient-bg min-h-screen flex items-center justify-center px-4">
-  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full">
+  <div class="card bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full">
 
     <!-- Icon -->
     <div class="flex justify-center mb-5">

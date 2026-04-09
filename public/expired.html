@@ -4,15 +4,20 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Enlace expirado — LabShortURL</title>
+  <script>if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark');</script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
     * { font-family: 'Inter', sans-serif; }
     .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .dark .gradient-bg { background: linear-gradient(135deg, #1a1730 0%, #12101e 100%); }
+    .dark .card { background: #1e1b2e !important; border: 1px solid #2d2a42; }
+    .dark .card h1 { color: #f1f0fb; }
+    .dark .card p  { color: #9ca3af; }
   </style>
 </head>
 <body class="gradient-bg min-h-screen flex items-center justify-center px-4">
-  <div class="bg-white rounded-2xl shadow-2xl p-10 max-w-md w-full text-center">
+  <div class="card bg-white rounded-2xl shadow-2xl p-10 max-w-md w-full text-center">
     <div class="text-6xl mb-4">⏳</div>
     <h1 class="text-2xl font-bold text-gray-800 mb-2">Enlace expirado</h1>
     <p class="text-gray-500 mb-6">Este enlace ya no está disponible porque alcanzó su fecha de expiración o su límite de clics.</p>
