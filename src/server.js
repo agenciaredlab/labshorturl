@@ -158,6 +158,44 @@ app.get('/api/qr/:code', async (req, res) => {
   }
 });
 
+// GET /api/export/csv?q=&status=&sort=
+app.get('/api/export/csv', (req, res) => {
+  const { q = '', status = 'all', sort = 'newest' } = req.query;
+  const urls = db.getAll({ q: q.trim(), status, sort });
+
+  const escape = v => {
+    if (v === null || v === undefined) return '';
+    const str = String(v);
+    return str.includes(',') || str.includes('"') || str.includes('\n')
+      ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+
+  const headers = ['Enlace corto', 'URL original', 'Código', 'Alias', 'Clics', 'Límite clics', 'Expira el', 'Protegida', 'Estado', 'Creada el'];
+  const rows = urls.map(u => {
+    const shortUrl = `${BASE_URL}/${u.alias || u.code}`;
+    const status   = urlStatus(u);
+    return [
+      shortUrl,
+      u.original,
+      u.code,
+      u.alias || '',
+      u.clicks,
+      u.max_clicks || '',
+      u.expires_at || '',
+      u.password_hash ? 'Sí' : 'No',
+      status === 'expired' ? 'Expirada' : 'Activa',
+      u.created_at,
+    ].map(escape).join(',');
+  });
+
+  const csv = [headers.join(','), ...rows].join('\r\n');
+  const filename = `labshorturl-export-${new Date().toISOString().slice(0, 10)}.csv`;
+
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send('\uFEFF' + csv); // BOM for Excel UTF-8 compatibility
+});
+
 // GET /api/analytics
 app.get('/api/analytics', (req, res) => {
   const global = db.getGlobalStats();

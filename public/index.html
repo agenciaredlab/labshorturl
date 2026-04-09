@@ -218,8 +218,19 @@
             </select>
           </div>
 
-          <!-- Result count -->
-          <p id="resultCount" class="text-white/50 text-xs"></p>
+          <!-- Result count + Export -->
+          <div class="flex items-center justify-between">
+            <p id="resultCount" class="text-white/50 text-xs"></p>
+            <button onclick="exportCSV()" id="exportBtn"
+              class="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 border border-white/25 text-white/80 hover:text-white text-xs px-3 py-1.5 rounded-lg transition font-medium">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Exportar CSV
+            </button>
+          </div>
         </div>
 
         <div id="urlList" class="space-y-3">
@@ -680,6 +691,15 @@
     function hideError() {
       document.getElementById('errorBox').classList.add('hidden');
       document.getElementById('result').classList.add('hidden');
+    }
+
+    function exportCSV() {
+      const q    = document.getElementById('searchInput')?.value.trim() || '';
+      const sort = document.getElementById('sortSelect')?.value || 'newest';
+      const params = new URLSearchParams({ q, status: currentFilter, sort });
+      const a = document.createElement('a');
+      a.href = `/api/export/csv?${params}`;
+      a.click();
     }
 
     function toggleFormPwd() {
