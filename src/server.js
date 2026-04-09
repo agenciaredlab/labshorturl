@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const { nanoid } = require('nanoid');
+const QRCode = require('qrcode');
 const db = require('./database');
 
 const app = express();
@@ -60,6 +61,33 @@ app.get('/api/analytics/:code', (req, res) => {
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   const analytics = db.getAnalytics(entry.code);
   res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, ...analytics });
+});
+
+// GET /api/qr/:code  — QR code as PNG or SVG
+app.get('/api/qr/:code', async (req, res) => {
+  const entry = db.findByCode(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+
+  const shortUrl = `${BASE_URL}/${entry.alias || entry.code}`;
+  const format   = req.query.format === 'svg' ? 'svg' : 'png';
+  const size     = Math.min(Math.max(parseInt(req.query.size) || 300, 100), 1000);
+
+  try {
+    if (format === 'svg') {
+      const svg = await QRCode.toString(shortUrl, { type: 'svg', width: size, margin: 2 });
+      res.set('Content-Type', 'image/svg+xml');
+      return res.send(svg);
+    }
+    const buffer = await QRCode.toBuffer(shortUrl, {
+      type: 'png', width: size, margin: 2,
+      color: { dark: '#4f46e5', light: '#ffffff' },
+    });
+    res.set('Content-Type', 'image/png');
+    res.set('Content-Disposition', `inline; filename="qr-${entry.alias || entry.code}.png"`);
+    res.send(buffer);
+  } catch {
+    res.status(500).json({ error: 'Error generando QR' });
+  }
 });
 
 // GET /api/analytics  — global dashboard stats

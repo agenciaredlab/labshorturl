@@ -67,6 +67,10 @@
       height: 10px; border-radius: 9999px;
       background: linear-gradient(90deg, #667eea, #764ba2);
     }
+
+    /* QR modal */
+    #qrModal img { image-rendering: pixelated; }
+    .qr-size-btn.active { background: #667eea; color: white; border-color: #667eea; }
   </style>
 </head>
 <body class="min-h-screen gradient-bg flex flex-col">
@@ -177,6 +181,45 @@
       </div>
     </div>
   </main>
+
+  <!-- ── QR MODAL ── -->
+  <div id="qrModal" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width:380px">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold text-gray-800">Código QR</h2>
+        <button onclick="closeQR()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+      </div>
+
+      <p id="qr-short" class="text-purple-600 text-sm font-medium text-center mb-4 truncate"></p>
+
+      <!-- QR image -->
+      <div class="flex justify-center mb-4">
+        <div class="p-3 bg-white border-2 border-gray-100 rounded-2xl shadow-inner inline-block">
+          <img id="qrImage" src="" alt="QR Code" class="block" style="width:240px;height:240px"/>
+        </div>
+      </div>
+
+      <!-- Size selector -->
+      <div class="flex justify-center gap-2 mb-5">
+        <span class="text-xs text-gray-400 self-center">Tamaño:</span>
+        <button onclick="setQRSize(200)" class="qr-size-btn text-xs px-3 py-1 border border-gray-200 rounded-lg">S</button>
+        <button onclick="setQRSize(400)" class="qr-size-btn active text-xs px-3 py-1 border rounded-lg">M</button>
+        <button onclick="setQRSize(800)" class="qr-size-btn text-xs px-3 py-1 border border-gray-200 rounded-lg">L</button>
+      </div>
+
+      <!-- Download buttons -->
+      <div class="flex gap-2">
+        <a id="qrDownloadPng" href="#" download
+          class="btn-primary flex-1 text-center text-white text-sm font-semibold py-2.5 rounded-xl">
+          Descargar PNG
+        </a>
+        <a id="qrDownloadSvg" href="#" download
+          class="flex-1 text-center border border-purple-300 text-purple-600 text-sm font-semibold py-2.5 rounded-xl hover:bg-purple-50 transition">
+          Descargar SVG
+        </a>
+      </div>
+    </div>
+  </div>
 
   <!-- ── ANALYTICS MODAL ── -->
   <div id="analyticsModal" class="modal-overlay hidden">
@@ -315,6 +358,11 @@
             <p class="text-gray-300 text-xs">${formatDate(u.created_at)}</p>
           </div>
           <div class="flex gap-2 flex-shrink-0">
+            <button onclick="openQR('${u.alias || u.code}')"
+              class="border border-indigo-200 text-indigo-500 text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition"
+              title="Código QR">
+              QR
+            </button>
             <button onclick="openModal('${u.alias || u.code}')"
               class="border border-purple-200 text-purple-500 text-xs px-3 py-1.5 rounded-lg hover:bg-purple-50 transition">
               Stats
@@ -496,6 +544,42 @@
       document.getElementById('errorBox').classList.add('hidden');
       document.getElementById('result').classList.add('hidden');
     }
+
+    // ── QR MODAL ──
+    let qrCurrentCode = '';
+    let qrCurrentSize = 400;
+
+    function openQR(code) {
+      qrCurrentCode = code;
+      document.getElementById('qr-short').textContent = window.location.origin + '/' + code;
+      setQRSize(qrCurrentSize);
+      document.getElementById('qrModal').classList.remove('hidden');
+    }
+
+    function closeQR() {
+      document.getElementById('qrModal').classList.add('hidden');
+    }
+
+    function setQRSize(size) {
+      qrCurrentSize = size;
+      // update active button
+      document.querySelectorAll('.qr-size-btn').forEach(b => {
+        const s = parseInt(b.getAttribute('onclick').match(/\d+/)[0]);
+        b.classList.toggle('active', s === size);
+        b.classList.toggle('border-gray-200', s !== size);
+      });
+      const pngUrl = `/api/qr/${encodeURIComponent(qrCurrentCode)}?size=${size}&format=png`;
+      const svgUrl = `/api/qr/${encodeURIComponent(qrCurrentCode)}?size=${size}&format=svg`;
+      document.getElementById('qrImage').src = pngUrl;
+      document.getElementById('qrDownloadPng').href = pngUrl;
+      document.getElementById('qrDownloadPng').download = `qr-${qrCurrentCode}-${size}.png`;
+      document.getElementById('qrDownloadSvg').href = svgUrl;
+      document.getElementById('qrDownloadSvg').download = `qr-${qrCurrentCode}.svg`;
+    }
+
+    document.getElementById('qrModal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeQR();
+    });
 
     // Init
     loadUrls();
