@@ -5,6 +5,7 @@ const QRCode = require('qrcode');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const geoip = require('geoip-lite');
+const session = require('express-session');
 const db = require('./database');
 const { checkOne, checkStale, startBackgroundChecker } = require('./health');
 
@@ -12,8 +13,64 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
+// ── ADMIN CREDENTIALS (set via env in production) ──
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
+if (!process.env.ADMIN_PASS) {
+  console.warn('⚠️  ADVERTENCIA: Usando contraseña de admin por defecto.');
+  console.warn('   Define ADMIN_USER y ADMIN_PASS en tus variables de entorno.');
+}
+
 app.use(express.json());
+
+// ── SESSION ──
+app.use(session({
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 8 * 60 * 60 * 1000, // 8 horas
+  },
+}));
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// ── AUTH MIDDLEWARES ──
+function requireAdmin(req, res, next) {
+  if (req.session?.admin) return next();
+  res.status(401).json({ error: 'No autenticado', redirect: '/login' });
+}
+
+// Acepta sesión de admin O API key válida
+function requireAdminOrKey(req, res, next) {
+  if (req.session?.admin) return next();
+  return requireApiKey(req, res, next);
+}
+
+// ── ADMIN AUTH ROUTES ──
+app.post('/api/admin/login', (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
+  }
+  if (username !== ADMIN_USER || password !== ADMIN_PASS) {
+    return res.status(401).json({ error: 'Credenciales incorrectas' });
+  }
+  req.session.admin = true;
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
+app.get('/api/admin/me', (req, res) => {
+  if (req.session?.admin) return res.json({ authenticated: true, user: ADMIN_USER });
+  res.status(401).json({ authenticated: false });
+});
 
 // ── API KEY AUTH MIDDLEWARE ──
 function hashKey(raw) {
@@ -34,7 +91,7 @@ function requireApiKey(req, res, next) {
 // ── API KEY MANAGEMENT ──
 
 // POST /api/keys  — create a new key
-app.post('/api/keys', (req, res) => {
+app.post('/api/keys', requireAdmin, (req, res) => {
   const { name } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'El nombre de la API key es requerido' });
 
@@ -47,19 +104,19 @@ app.post('/api/keys', (req, res) => {
 });
 
 // GET /api/keys  — list keys (no plain-text, only prefix + metadata)
-app.get('/api/keys', (req, res) => {
+app.get('/api/keys', requireAdmin, (req, res) => {
   res.json(db.listApiKeys());
 });
 
 // DELETE /api/keys/:id  — revoke a key
-app.delete('/api/keys/:id', (req, res) => {
+app.delete('/api/keys/:id', requireAdmin, (req, res) => {
   const info = db.revokeApiKey(parseInt(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: 'Key no encontrada' });
   res.json({ ok: true });
 });
 
 // POST /api/shorten
-app.post('/api/shorten', async (req, res) => {
+app.post('/api/shorten', requireAdminOrKey, async (req, res) => {
   const { url, alias, max_clicks, expires_at, password,
           utm_source, utm_medium, utm_campaign, utm_term, utm_content,
           show_preview } = req.body;
@@ -236,7 +293,7 @@ app.post('/api/unlock/:code', async (req, res) => {
 });
 
 // PUT /api/urls/:code  — edit a URL
-app.put('/api/urls/:code', async (req, res) => {
+app.put('/api/urls/:code', requireAdmin, async (req, res) => {
   const entry = db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
 
@@ -296,7 +353,7 @@ app.put('/api/urls/:code', async (req, res) => {
 });
 
 // DELETE /api/urls/:code  — delete a URL and its clicks
-app.delete('/api/urls/:code', (req, res) => {
+app.delete('/api/urls/:code', requireAdmin, (req, res) => {
   const entry = db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   const info = db.deleteUrl(entry.code);
@@ -305,7 +362,7 @@ app.delete('/api/urls/:code', (req, res) => {
 });
 
 // GET /api/urls?q=&status=all|active|expired|protected|limited&sort=newest|oldest|most|least|alpha
-app.get('/api/urls', (req, res) => {
+app.get('/api/urls', requireAdmin, (req, res) => {
   const { q = '', status = 'all', sort = 'newest' } = req.query;
   const urls = db.getAll({ q: q.trim(), status, sort });
   res.json(urls.map(u => ({
@@ -318,7 +375,7 @@ app.get('/api/urls', (req, res) => {
 });
 
 // GET /api/urls/:code/health  — get stored health for one URL without re-checking
-app.get('/api/urls/:code/health', (req, res) => {
+app.get('/api/urls/:code/health', requireAdmin, (req, res) => {
   const entry = db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   res.json({
@@ -330,7 +387,7 @@ app.get('/api/urls/:code/health', (req, res) => {
 });
 
 // GET /api/stats/:code
-app.get('/api/stats/:code', (req, res) => {
+app.get('/api/stats/:code', requireAdmin, (req, res) => {
   const entry = db.getStats(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   res.json({
@@ -343,7 +400,7 @@ app.get('/api/stats/:code', (req, res) => {
 });
 
 // GET /api/analytics/:code
-app.get('/api/analytics/:code', (req, res) => {
+app.get('/api/analytics/:code', requireAdmin, (req, res) => {
   const entry = db.getStats(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   const analytics = db.getAnalytics(entry.code);
@@ -385,7 +442,7 @@ app.get('/api/qr/:code', async (req, res) => {
 });
 
 // POST /api/health/:code  — check one URL now
-app.post('/api/health/:code', async (req, res) => {
+app.post('/api/health/:code', requireAdmin, async (req, res) => {
   const entry = db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   const result = await checkOne(entry.code, entry.original);
@@ -393,13 +450,13 @@ app.post('/api/health/:code', async (req, res) => {
 });
 
 // POST /api/health  — check all stale URLs now
-app.post('/api/health', async (req, res) => {
+app.post('/api/health', requireAdmin, async (req, res) => {
   const count = await checkStale();
   res.json({ checked: count });
 });
 
 // GET /api/export/csv?q=&status=&sort=
-app.get('/api/export/csv', (req, res) => {
+app.get('/api/export/csv', requireAdmin, (req, res) => {
   const { q = '', status = 'all', sort = 'newest' } = req.query;
   const urls = db.getAll({ q: q.trim(), status, sort });
 
@@ -437,7 +494,7 @@ app.get('/api/export/csv', (req, res) => {
 });
 
 // GET /api/analytics
-app.get('/api/analytics', (req, res) => {
+app.get('/api/analytics', requireAdmin, (req, res) => {
   const global = db.getGlobalStats();
   const top = db.getTopUrls().map(u => ({
     ...u,
