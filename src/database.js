@@ -40,6 +40,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_clicks_code ON clicks(url_code);
   CREATE INDEX IF NOT EXISTS idx_clicks_at   ON clicks(clicked_at);
+
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_hash   TEXT    NOT NULL UNIQUE,
+    prefix     TEXT    NOT NULL,
+    name       TEXT    NOT NULL,
+    last_used  TEXT,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_api_key_hash ON api_keys(key_hash);
 `);
 
 // Migrate: add columns if they don't exist yet (idempotent)
@@ -163,6 +173,13 @@ const stmts = {
        OR last_checked <= datetime('now', '-1 hour')
     ORDER BY last_checked ASC LIMIT 50
   `),
+
+  // API keys
+  insertApiKey: db.prepare(`INSERT INTO api_keys (key_hash, prefix, name) VALUES (@key_hash, @prefix, @name)`),
+  findApiKey:   db.prepare(`SELECT * FROM api_keys WHERE key_hash = ? LIMIT 1`),
+  touchApiKey:  db.prepare(`UPDATE api_keys SET last_used = datetime('now') WHERE key_hash = ?`),
+  listApiKeys:  db.prepare(`SELECT id, prefix, name, last_used, created_at FROM api_keys ORDER BY created_at DESC`),
+  revokeApiKey: db.prepare(`DELETE FROM api_keys WHERE id = ?`),
 };
 
 function parseUA(ua = '') {
@@ -272,6 +289,23 @@ module.exports = {
   getTopUrls() {
     return stmts.topUrls.all();
   },
+  // API key methods
+  createApiKey(key_hash, prefix, name) {
+    return stmts.insertApiKey.run({ key_hash, prefix, name });
+  },
+  findApiKey(key_hash) {
+    return stmts.findApiKey.get(key_hash);
+  },
+  touchApiKey(key_hash) {
+    stmts.touchApiKey.run(key_hash);
+  },
+  listApiKeys() {
+    return stmts.listApiKeys.all();
+  },
+  revokeApiKey(id) {
+    return stmts.revokeApiKey.run(id);
+  },
+
   updateHealth(code, status, httpCode = null) {
     stmts.updateHealth.run({ code_id: code, status, code: httpCode });
   },

@@ -3,6 +3,7 @@ const path = require('path');
 const { nanoid } = require('nanoid');
 const QRCode = require('qrcode');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const geoip = require('geoip-lite');
 const db = require('./database');
 const { checkOne, checkStale, startBackgroundChecker } = require('./health');
@@ -13,6 +14,49 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// ── API KEY AUTH MIDDLEWARE ──
+function hashKey(raw) {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+function requireApiKey(req, res, next) {
+  const header = req.headers['authorization'] || req.headers['x-api-key'] || '';
+  const raw    = header.startsWith('Bearer ') ? header.slice(7) : header;
+  if (!raw) return res.status(401).json({ error: 'API key requerida. Usa el header Authorization: Bearer <key>' });
+  const entry = db.findApiKey(hashKey(raw));
+  if (!entry)  return res.status(401).json({ error: 'API key inválida o revocada' });
+  db.touchApiKey(hashKey(raw));
+  req.apiKey = entry;
+  next();
+}
+
+// ── API KEY MANAGEMENT ──
+
+// POST /api/keys  — create a new key
+app.post('/api/keys', (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'El nombre de la API key es requerido' });
+
+  const raw    = `lsu_${nanoid(32)}`;
+  const prefix = raw.slice(0, 10) + '…';
+  db.createApiKey(hashKey(raw), prefix, name.trim());
+
+  // Return full key ONCE — never stored in plain text
+  res.status(201).json({ key: raw, prefix, name: name.trim(), note: 'Guarda esta clave ahora, no se mostrará de nuevo.' });
+});
+
+// GET /api/keys  — list keys (no plain-text, only prefix + metadata)
+app.get('/api/keys', (req, res) => {
+  res.json(db.listApiKeys());
+});
+
+// DELETE /api/keys/:id  — revoke a key
+app.delete('/api/keys/:id', (req, res) => {
+  const info = db.revokeApiKey(parseInt(req.params.id));
+  if (info.changes === 0) return res.status(404).json({ error: 'Key no encontrada' });
+  res.json({ ok: true });
+});
 
 // POST /api/shorten
 app.post('/api/shorten', async (req, res) => {
@@ -88,6 +132,55 @@ app.post('/api/shorten', async (req, res) => {
     show_preview: !!show_preview,
     utm:          hasUtm ? utmParams : null,
   });
+});
+
+// ── API v1 (key-protected) ──
+app.get('/api/v1/urls', requireApiKey, (req, res) => {
+  const { q = '', status = 'all', sort = 'newest' } = req.query;
+  const urls = db.getAll({ q: q.trim(), status, sort });
+  res.json(urls.map(u => ({
+    ...u, short: `${BASE_URL}/${u.alias || u.code}`,
+    status: urlStatus(u), protected: !!u.password_hash, password_hash: undefined,
+  })));
+});
+
+app.get('/api/v1/stats/:code', requireApiKey, (req, res) => {
+  const entry = db.getStats(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), password_hash: undefined });
+});
+
+app.get('/api/v1/analytics', requireApiKey, (req, res) => {
+  const global = db.getGlobalStats();
+  const top    = db.getTopUrls().map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u), password_hash: undefined }));
+  res.json({ ...global, topUrls: top });
+});
+
+app.post('/api/v1/shorten', requireApiKey, async (req, res) => {
+  // Delegate to the same shorten handler logic
+  const { url, alias, max_clicks, expires_at, password,
+          utm_source, utm_medium, utm_campaign, utm_term, utm_content, show_preview } = req.body;
+
+  if (!url || !isValidUrl(url)) return res.status(400).json({ error: 'URL inválida' });
+  if (alias && !/^[a-zA-Z0-9_-]{3,30}$/.test(alias)) return res.status(400).json({ error: 'Alias inválido' });
+
+  const code = nanoid(7);
+  const password_hash = password ? await bcrypt.hash(password, 10) : null;
+  let finalUrl = url;
+  const utmParams = { utm_source, utm_medium, utm_campaign, utm_term, utm_content };
+  if (Object.values(utmParams).some(v => v)) {
+    const u = new URL(url);
+    for (const [k, v] of Object.entries(utmParams)) { if (v) u.searchParams.set(k, v); }
+    finalUrl = u.toString();
+  }
+  try {
+    db.createUrl(code, finalUrl, { alias: alias || null, max_clicks: max_clicks ? parseInt(max_clicks) : null, expires_at: expires_at || null, password_hash, show_preview: !!show_preview, ...utmParams });
+  } catch (err) {
+    if (err.message.includes('UNIQUE constraint')) return res.status(409).json({ error: 'Alias en uso' });
+    return res.status(500).json({ error: 'Error interno' });
+  }
+  const shortCode = alias || code;
+  res.json({ short: `${BASE_URL}/${shortCode}`, code: shortCode, original: finalUrl });
 });
 
 // GET /api/preview/:code  — public metadata for the preview page (no password_hash)
