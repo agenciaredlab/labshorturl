@@ -19,6 +19,9 @@ db.exec(`
     utm_term      TEXT,
     utm_content   TEXT,
     show_preview  INTEGER NOT NULL DEFAULT 0,
+    health_status TEXT    NOT NULL DEFAULT 'unknown',
+    health_code   INTEGER,
+    last_checked  TEXT,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_code  ON urls(code);
@@ -52,6 +55,9 @@ for (const col of [
   `ALTER TABLE clicks ADD COLUMN country_code TEXT`,
   `ALTER TABLE clicks ADD COLUMN city TEXT`,
   `ALTER TABLE urls ADD COLUMN show_preview INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE urls ADD COLUMN health_status TEXT NOT NULL DEFAULT 'unknown'`,
+  `ALTER TABLE urls ADD COLUMN health_code INTEGER`,
+  `ALTER TABLE urls ADD COLUMN last_checked TEXT`,
 ]) {
   try { db.exec(col); } catch { /* already exists */ }
 }
@@ -143,6 +149,19 @@ const stmts = {
     SELECT strftime('%Y-%m-%d', clicked_at) AS day, COUNT(*) AS count
     FROM clicks
     GROUP BY day ORDER BY day DESC LIMIT 30
+  `),
+
+  updateHealth: db.prepare(`
+    UPDATE urls SET health_status = @status, health_code = @code,
+                    last_checked = datetime('now')
+    WHERE code = @code_id
+  `),
+
+  getAllForHealth: db.prepare(`
+    SELECT code, original FROM urls
+    WHERE last_checked IS NULL
+       OR last_checked <= datetime('now', '-1 hour')
+    ORDER BY last_checked ASC LIMIT 50
   `),
 };
 
@@ -252,6 +271,12 @@ module.exports = {
   },
   getTopUrls() {
     return stmts.topUrls.all();
+  },
+  updateHealth(code, status, httpCode = null) {
+    stmts.updateHealth.run({ code_id: code, status, code: httpCode });
+  },
+  getAllForHealth() {
+    return stmts.getAllForHealth.all();
   },
   getGlobalStats() {
     return {

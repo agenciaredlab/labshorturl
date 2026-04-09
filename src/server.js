@@ -5,6 +5,7 @@ const QRCode = require('qrcode');
 const bcrypt = require('bcryptjs');
 const geoip = require('geoip-lite');
 const db = require('./database');
+const { checkOne, checkStale, startBackgroundChecker } = require('./health');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -154,6 +155,18 @@ app.get('/api/urls', (req, res) => {
   })));
 });
 
+// GET /api/urls/:code/health  — get stored health for one URL without re-checking
+app.get('/api/urls/:code/health', (req, res) => {
+  const entry = db.findByCode(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  res.json({
+    code:          entry.alias || entry.code,
+    health_status: entry.health_status,
+    health_code:   entry.health_code,
+    last_checked:  entry.last_checked,
+  });
+});
+
 // GET /api/stats/:code
 app.get('/api/stats/:code', (req, res) => {
   const entry = db.getStats(req.params.code);
@@ -207,6 +220,20 @@ app.get('/api/qr/:code', async (req, res) => {
   } catch {
     res.status(500).json({ error: 'Error generando QR' });
   }
+});
+
+// POST /api/health/:code  — check one URL now
+app.post('/api/health/:code', async (req, res) => {
+  const entry = db.findByCode(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  const result = await checkOne(entry.code, entry.original);
+  res.json(result);
+});
+
+// POST /api/health  — check all stale URLs now
+app.post('/api/health', async (req, res) => {
+  const count = await checkStale();
+  res.json({ checked: count });
 });
 
 // GET /api/export/csv?q=&status=&sort=
@@ -292,6 +319,7 @@ app.get('/:code', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`LabShortURL corriendo en ${BASE_URL}`);
+  startBackgroundChecker();
 });
 
 function getGeo(req) {
