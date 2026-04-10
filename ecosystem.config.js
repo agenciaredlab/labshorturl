@@ -16,7 +16,6 @@ module.exports = {
     name: 'labshorturl',
     script: 'src/server.js',
 
-    // SQLite no soporta múltiples procesos escribiendo — mantener en 1
     instances: 1,
     exec_mode: 'fork',
 
@@ -27,7 +26,7 @@ module.exports = {
     env_production: {
       NODE_ENV:   'production',
       PORT:       3000,
-      // BASE_URL, ADMIN_USER, ADMIN_PASS, SESSION_SECRET — definir en .env
+      // BASE_URL, ADMIN_USER, ADMIN_PASS, SESSION_SECRET, DATABASE_URL — definir en .env
     },
 
     // Logs de PM2 (adicionales a los de Morgan)

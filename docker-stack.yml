@@ -1,8 +1,10 @@
 # Docker Swarm / Portainer
 #
 # Crear secrets antes de desplegar:
-#   echo "tu-contrasena-segura" | docker secret create labshorturl_admin_pass -
+#   echo "tu-contrasena-segura"    | docker secret create labshorturl_admin_pass -
 #   echo "$(openssl rand -hex 32)" | docker secret create labshorturl_session_secret -
+#   echo "postgresql://labshorturl:CAMBIA_ESTO@db:5432/labshorturl" \
+#                                  | docker secret create labshorturl_database_url -
 #
 # Desplegar:
 #   docker stack deploy -c docker-stack.yml labshorturl
@@ -13,8 +15,34 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: labshorturl
+      POSTGRES_USER: labshorturl
+      # La contraseña se lee del secret montado en /run/secrets/POSTGRES_PASSWORD
+      POSTGRES_PASSWORD_FILE: /run/secrets/labshorturl_pg_password
+    secrets:
+      - labshorturl_pg_password
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+      placement:
+        constraints:
+          - node.role == manager   # ancla el volumen al mismo nodo siempre
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labshorturl"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   app:
-    image: labshorturl:latest   # construir primero con: docker build -t labshorturl:latest .
+    image: labshorturl:latest   # construir primero: docker build -t labshorturl:latest .
     ports:
       - target: 3000
         published: 3000
@@ -24,18 +52,18 @@ services:
       PORT: 3000
       BASE_URL: https://tudominio.com   # ← cambia esto
       ADMIN_USER: admin
-      # ADMIN_PASS y SESSION_SECRET se inyectan vía Docker secrets (ver abajo)
-      DB_PATH: /app/data/urls.db
+      # ADMIN_PASS, SESSION_SECRET y DATABASE_URL se inyectan vía Docker secrets
     secrets:
       - source: labshorturl_admin_pass
-        target: ADMIN_PASS          # montado en /run/secrets/ADMIN_PASS
+        target: ADMIN_PASS
       - source: labshorturl_session_secret
         target: SESSION_SECRET
+      - source: labshorturl_database_url
+        target: DATABASE_URL
     volumes:
-      - db_data:/app/data            # IMPORTANTE: SQLite requiere almacenamiento local
       - logs:/app/logs
     deploy:
-      replicas: 1                    # SQLite no soporta múltiples réplicas escribiendo
+      replicas: 2                    # PostgreSQL permite múltiples réplicas de la app
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -45,7 +73,7 @@ services:
         parallelism: 1
         delay: 10s
         failure_action: rollback
-        order: stop-first            # detener antes de actualizar (evita dos instancias con mismo DB)
+        order: start-first           # nueva instancia levanta antes de bajar la vieja
       resources:
         limits:
           cpus: '1.0'
@@ -53,24 +81,25 @@ services:
         reservations:
           cpus: '0.25'
           memory: 128M
-      placement:
-        constraints:
-          - node.role == manager     # ancla al nodo manager donde está el volumen local
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 20s
 
 volumes:
-  db_data:
+  pg_data:
     driver: local
   logs:
     driver: local
 
 secrets:
+  labshorturl_pg_password:
+    external: true
   labshorturl_admin_pass:
     external: true
   labshorturl_session_secret:
+    external: true
+  labshorturl_database_url:
     external: true

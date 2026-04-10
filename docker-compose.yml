@@ -1,8 +1,22 @@
 # Para desarrollo local: docker compose up -d
-# Para producción standalone: usa docker-stack.yml con Docker Swarm
 version: '3.8'
 
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: labshorturl
+      POSTGRES_USER: labshorturl
+      POSTGRES_PASSWORD: labshorturl
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labshorturl"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   app:
     build: .
     image: labshorturl:latest
@@ -15,18 +29,20 @@ services:
       ADMIN_USER: admin
       ADMIN_PASS: admin123              # Cambia en producción
       SESSION_SECRET: dev-secret-local  # Cambia en producción
-      DB_PATH: /app/data/urls.db
+      DATABASE_URL: postgresql://labshorturl:labshorturl@db:5432/labshorturl
     volumes:
-      - db_data:/app/data   # Persiste la base de datos SQLite
-      - logs:/app/logs      # Persiste los logs
+      - logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 20s
 
 volumes:
-  db_data:
+  pg_data:
   logs:

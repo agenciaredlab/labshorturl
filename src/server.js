@@ -21,23 +21,18 @@ const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 const LOG_DIR = path.join(__dirname, '..', 'logs');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
 
-// Formato personalizado: timestamp + método + url + status + tiempo + ip
 morgan.token('real-ip', req => {
   const fwd = req.headers['x-forwarded-for'];
   return fwd ? fwd.split(',')[0].trim() : req.socket.remoteAddress;
 });
-
 const LOG_FORMAT = ':real-ip :method :url :status :response-time ms - :res[content-length]';
 
-// En producción: archivo rotativo diario. En dev: consola coloreada.
 let morganMiddleware;
 if (process.env.NODE_ENV === 'production') {
-  // Nuevo archivo de log por día: logs/access-YYYY-MM-DD.log
   function getDailyLogStream() {
     const date = new Date().toISOString().slice(0, 10);
     return fs.createWriteStream(path.join(LOG_DIR, `access-${date}.log`), { flags: 'a' });
   }
-  // Recrear el stream cada hora para capturar cambio de día
   let logStream = getDailyLogStream();
   setInterval(() => { logStream = getDailyLogStream(); }, 60 * 60 * 1000);
   morganMiddleware = morgan(LOG_FORMAT, { stream: { write: msg => logStream.write(msg) } });
@@ -45,7 +40,6 @@ if (process.env.NODE_ENV === 'production') {
   morganMiddleware = morgan('dev');
 }
 
-// Logger centralizado para errores de aplicación
 function logError(context, err) {
   const line = `[${new Date().toISOString()}] ERROR ${context}: ${err?.message || err}\n`;
   process.stderr.write(line);
@@ -55,17 +49,14 @@ function logError(context, err) {
 }
 
 // ── ADMIN CREDENTIALS ──
-// Docker Swarm monta los secrets como archivos en /run/secrets/<nombre>
-// Si existe el archivo, lo usa; si no, cae al env var; si no, usa default.
 function readSecret(envVar, fallback) {
-  const filePath = `/run/secrets/${envVar}`;
-  try { return require('fs').readFileSync(filePath, 'utf8').trim(); } catch {}
+  try { return fs.readFileSync(`/run/secrets/${envVar}`, 'utf8').trim(); } catch {}
   return process.env[envVar] || fallback;
 }
 
 const ADMIN_USER = readSecret('ADMIN_USER', 'admin');
 const ADMIN_PASS = readSecret('ADMIN_PASS', 'admin123');
-if (!process.env.ADMIN_PASS && !require('fs').existsSync('/run/secrets/ADMIN_PASS')) {
+if (!process.env.ADMIN_PASS && !fs.existsSync('/run/secrets/ADMIN_PASS')) {
   console.warn('⚠️  ADVERTENCIA: Usando contraseña de admin por defecto.');
   console.warn('   Define ADMIN_PASS como env var o Docker secret en producción.');
 }
@@ -75,7 +66,6 @@ app.use(morganMiddleware);
 
 // ── SECURITY HEADERS ──
 app.use(helmet({
-  // CSP: permite Tailwind CDN, Google Fonts, Chart.js CDN y nuestras APIs
   contentSecurityPolicy: {
     directives: {
       defaultSrc:     ["'self'"],
@@ -87,29 +77,16 @@ app.use(helmet({
       frameAncestors: ["'none'"],
     },
   },
-  // Evita que el navegador haga MIME-type sniffing
   noSniff: true,
-  // Fuerza HTTPS si NODE_ENV=production
   hsts: process.env.NODE_ENV === 'production'
-    ? { maxAge: 31536000, includeSubDomains: true }
-    : false,
-  // Oculta el header X-Powered-By: Express
+    ? { maxAge: 31536000, includeSubDomains: true } : false,
   hidePoweredBy: true,
-  // Evita clickjacking
   frameguard: { action: 'deny' },
-  // Evita XSS reflejado en IE (legacy, pero gratis)
   xssFilter: true,
-  // No cachear respuestas de la API (previene cache de datos sensibles)
-  noCache: false, // manejado manualmente donde aplica
-  // Controla qué información de referrer se envía
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
-// No cachear respuestas de la API
-app.use('/api', (req, res, next) => {
-  res.set('Cache-Control', 'no-store');
-  next();
-});
+app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 // ── SESSION ──
 app.use(session({
@@ -120,15 +97,13 @@ app.use(session({
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 8 * 60 * 60 * 1000, // 8 horas
+    maxAge: 8 * 60 * 60 * 1000,
   },
 }));
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // ── RATE LIMITING ──
-// Trusts the X-Forwarded-For header when behind a reverse proxy (nginx, etc.)
-// Set to the number of proxies in front of the app (1 for typical nginx setup)
 if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
 
 const rateLimitHandler = (req, res) => {
@@ -138,46 +113,27 @@ const rateLimitHandler = (req, res) => {
   });
 };
 
-// Fábrica: 5 intentos cada 15 min, solo cuenta los fallidos (401/429)
-// Cada ruta crítica recibe su propia instancia para contadores independientes
 function makeStrictLimiter() {
   return rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
-    standardHeaders: true,
-    legacyHeaders: false,
-    handler: rateLimitHandler,
-    skipSuccessfulRequests: true, // solo cuenta los fallidos
+    windowMs: 15 * 60 * 1000, max: 5,
+    standardHeaders: true, legacyHeaders: false,
+    handler: rateLimitHandler, skipSuccessfulRequests: true,
   });
 }
 const loginLimiter  = makeStrictLimiter();
 const unlockLimiter = makeStrictLimiter();
 
-// 30 req/hora — para creación de URLs (evita spam)
 const shortenLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: rateLimitHandler,
+  windowMs: 60 * 60 * 1000, max: 30,
+  standardHeaders: true, legacyHeaders: false, handler: rateLimitHandler,
 });
-
-// 60 req/min — para la API pública en general
 const apiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: rateLimitHandler,
+  windowMs: 60 * 1000, max: 60,
+  standardHeaders: true, legacyHeaders: false, handler: rateLimitHandler,
 });
-
-// 120 req/min — para los redirects (alta frecuencia esperada)
 const redirectLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: rateLimitHandler,
+  windowMs: 60 * 1000, max: 120,
+  standardHeaders: true, legacyHeaders: false, handler: rateLimitHandler,
 });
 
 // ── AUTH MIDDLEWARES ──
@@ -186,21 +142,38 @@ function requireAdmin(req, res, next) {
   res.status(401).json({ error: 'No autenticado', redirect: '/login' });
 }
 
-// Acepta sesión de admin O API key válida
+async function requireApiKey(req, res, next) {
+  const header = req.headers['authorization'] || req.headers['x-api-key'] || '';
+  const raw    = header.startsWith('Bearer ') ? header.slice(7) : header;
+  if (!raw) return res.status(401).json({ error: 'API key requerida. Usa el header Authorization: Bearer <key>' });
+  const entry = await db.findApiKey(hashKey(raw));
+  if (!entry)  return res.status(401).json({ error: 'API key inválida o revocada' });
+  await db.touchApiKey(hashKey(raw));
+  req.apiKey = entry;
+  next();
+}
+
 function requireAdminOrKey(req, res, next) {
   if (req.session?.admin) return next();
   return requireApiKey(req, res, next);
 }
 
+function hashKey(raw) {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+function isDuplicateKey(err) {
+  // PostgreSQL: "duplicate key value violates unique constraint"
+  return err.code === '23505' || err.message?.includes('duplicate key');
+}
+
 // ── ADMIN AUTH ROUTES ──
 app.post('/api/admin/login', loginLimiter, (req, res) => {
   const { username, password } = req.body || {};
-  if (!username || !password) {
+  if (!username || !password)
     return res.status(400).json({ error: 'Usuario y contraseña requeridos' });
-  }
-  if (username !== ADMIN_USER || password !== ADMIN_PASS) {
+  if (username !== ADMIN_USER || password !== ADMIN_PASS)
     return res.status(401).json({ error: 'Credenciales incorrectas' });
-  }
   req.session.admin = true;
   res.json({ ok: true });
 });
@@ -214,156 +187,114 @@ app.get('/api/admin/me', (req, res) => {
   res.status(401).json({ authenticated: false });
 });
 
-// ── API KEY AUTH MIDDLEWARE ──
-function hashKey(raw) {
-  return crypto.createHash('sha256').update(raw).digest('hex');
-}
-
-function requireApiKey(req, res, next) {
-  const header = req.headers['authorization'] || req.headers['x-api-key'] || '';
-  const raw    = header.startsWith('Bearer ') ? header.slice(7) : header;
-  if (!raw) return res.status(401).json({ error: 'API key requerida. Usa el header Authorization: Bearer <key>' });
-  const entry = db.findApiKey(hashKey(raw));
-  if (!entry)  return res.status(401).json({ error: 'API key inválida o revocada' });
-  db.touchApiKey(hashKey(raw));
-  req.apiKey = entry;
-  next();
-}
-
 // ── API KEY MANAGEMENT ──
-
-// POST /api/keys  — create a new key
-app.post('/api/keys', requireAdmin, (req, res) => {
+app.post('/api/keys', requireAdmin, async (req, res) => {
   const { name } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'El nombre de la API key es requerido' });
-
+  if (!name?.trim()) return res.status(400).json({ error: 'El nombre de la API key es requerido' });
   const raw    = `lsu_${nanoid(32)}`;
   const prefix = raw.slice(0, 10) + '…';
-  db.createApiKey(hashKey(raw), prefix, name.trim());
-
-  // Return full key ONCE — never stored in plain text
+  await db.createApiKey(hashKey(raw), prefix, name.trim());
   res.status(201).json({ key: raw, prefix, name: name.trim(), note: 'Guarda esta clave ahora, no se mostrará de nuevo.' });
 });
 
-// GET /api/keys  — list keys (no plain-text, only prefix + metadata)
-app.get('/api/keys', requireAdmin, (req, res) => {
-  res.json(db.listApiKeys());
+app.get('/api/keys', requireAdmin, async (req, res) => {
+  res.json(await db.listApiKeys());
 });
 
-// DELETE /api/keys/:id  — revoke a key
-app.delete('/api/keys/:id', requireAdmin, (req, res) => {
-  const info = db.revokeApiKey(parseInt(req.params.id));
+app.delete('/api/keys/:id', requireAdmin, async (req, res) => {
+  const info = await db.revokeApiKey(parseInt(req.params.id));
   if (info.changes === 0) return res.status(404).json({ error: 'Key no encontrada' });
   res.json({ ok: true });
 });
 
-// POST /api/shorten
+// ── SHORTEN ──
 app.post('/api/shorten', requireAdminOrKey, shortenLimiter, async (req, res) => {
   const { url, alias, max_clicks, expires_at, password,
           utm_source, utm_medium, utm_campaign, utm_term, utm_content,
           show_preview } = req.body;
 
-  if (!url || !isValidUrl(url)) {
+  if (!url || !isValidUrl(url))
     return res.status(400).json({ error: 'URL inválida. Incluye http:// o https://' });
-  }
-  if (alias && !/^[a-zA-Z0-9_-]{3,30}$/.test(alias)) {
+  if (alias && !/^[a-zA-Z0-9_-]{3,30}$/.test(alias))
     return res.status(400).json({ error: 'El alias solo puede contener letras, números, - y _  (3-30 caracteres)' });
-  }
-  if (max_clicks !== undefined && max_clicks !== null) {
+  if (max_clicks != null && max_clicks !== '') {
     const n = parseInt(max_clicks);
-    if (!Number.isInteger(n) || n < 1) {
+    if (!Number.isInteger(n) || n < 1)
       return res.status(400).json({ error: 'El límite de clics debe ser un número entero mayor a 0' });
-    }
   }
   if (expires_at) {
     const d = new Date(expires_at);
-    if (isNaN(d.getTime()) || d <= new Date()) {
+    if (isNaN(d.getTime()) || d <= new Date())
       return res.status(400).json({ error: 'La fecha de expiración debe ser futura' });
-    }
   }
-  if (password && password.length < 4) {
+  if (password && password.length < 4)
     return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
-  }
 
   const code = nanoid(7);
   const password_hash = password ? await bcrypt.hash(password, 10) : null;
 
-  // Build final URL with UTM params appended
   let finalUrl = url;
   const utmParams = { utm_source, utm_medium, utm_campaign, utm_term, utm_content };
-  const hasUtm = Object.values(utmParams).some(v => v && v.trim());
+  const hasUtm = Object.values(utmParams).some(v => v?.trim());
   if (hasUtm) {
     const u = new URL(url);
     for (const [k, v] of Object.entries(utmParams)) {
-      if (v && v.trim()) u.searchParams.set(k, v.trim());
+      if (v?.trim()) u.searchParams.set(k, v.trim());
     }
     finalUrl = u.toString();
   }
 
   try {
-    db.createUrl(code, finalUrl, {
+    await db.createUrl(code, finalUrl, {
       alias: alias || null,
       max_clicks: max_clicks ? parseInt(max_clicks) : null,
       expires_at: expires_at || null,
       password_hash,
-      utm_source:   utm_source   || null,
-      utm_medium:   utm_medium   || null,
-      utm_campaign: utm_campaign || null,
-      utm_term:     utm_term     || null,
-      utm_content:  utm_content  || null,
+      ...utmParams,
       show_preview: !!show_preview,
     });
   } catch (err) {
-    if (err.message.includes('UNIQUE constraint')) {
+    if (isDuplicateKey(err))
       return res.status(409).json({ error: 'El alias ya está en uso. Elige otro.' });
-    }
     logError('POST /api/shorten', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 
   const shortCode = alias || code;
   res.json({
-    short:      `${BASE_URL}/${shortCode}`,
-    code:       shortCode,
-    original:   finalUrl,
-    max_clicks: max_clicks || null,
-    expires_at: expires_at || null,
-    protected:    !!password,
-    show_preview: !!show_preview,
-    utm:          hasUtm ? utmParams : null,
+    short: `${BASE_URL}/${shortCode}`, code: shortCode, original: finalUrl,
+    max_clicks: max_clicks || null, expires_at: expires_at || null,
+    protected: !!password, show_preview: !!show_preview,
+    utm: hasUtm ? utmParams : null,
   });
 });
 
 // ── API v1 (key-protected) ──
-app.get('/api/v1/urls', requireApiKey, (req, res) => {
+app.get('/api/v1/urls', requireApiKey, async (req, res) => {
   const { q = '', status = 'all', sort = 'newest' } = req.query;
-  const urls = db.getAll({ q: q.trim(), status, sort });
+  const urls = await db.getAll({ q: q.trim(), status, sort });
   res.json(urls.map(u => ({
     ...u, short: `${BASE_URL}/${u.alias || u.code}`,
     status: urlStatus(u), protected: !!u.password_hash, password_hash: undefined,
   })));
 });
 
-app.get('/api/v1/stats/:code', requireApiKey, (req, res) => {
-  const entry = db.getStats(req.params.code);
+app.get('/api/v1/stats/:code', requireApiKey, async (req, res) => {
+  const entry = await db.getStats(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), password_hash: undefined });
 });
 
-app.get('/api/v1/analytics', requireApiKey, (req, res) => {
-  const global = db.getGlobalStats();
-  const top    = db.getTopUrls().map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u), password_hash: undefined }));
-  res.json({ ...global, topUrls: top });
+app.get('/api/v1/analytics', requireApiKey, async (req, res) => {
+  const [global, top] = await Promise.all([db.getGlobalStats(), db.getTopUrls()]);
+  res.json({ ...global, topUrls: top.map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u), password_hash: undefined })) });
 });
 
 app.post('/api/v1/shorten', requireApiKey, async (req, res) => {
-  // Delegate to the same shorten handler logic
   const { url, alias, max_clicks, expires_at, password,
           utm_source, utm_medium, utm_campaign, utm_term, utm_content, show_preview } = req.body;
-
   if (!url || !isValidUrl(url)) return res.status(400).json({ error: 'URL inválida' });
   if (alias && !/^[a-zA-Z0-9_-]{3,30}$/.test(alias)) return res.status(400).json({ error: 'Alias inválido' });
-
   const code = nanoid(7);
   const password_hash = password ? await bcrypt.hash(password, 10) : null;
   let finalUrl = url;
@@ -374,209 +305,131 @@ app.post('/api/v1/shorten', requireApiKey, async (req, res) => {
     finalUrl = u.toString();
   }
   try {
-    db.createUrl(code, finalUrl, { alias: alias || null, max_clicks: max_clicks ? parseInt(max_clicks) : null, expires_at: expires_at || null, password_hash, show_preview: !!show_preview, ...utmParams });
+    await db.createUrl(code, finalUrl, { alias: alias || null, max_clicks: max_clicks ? parseInt(max_clicks) : null, expires_at: expires_at || null, password_hash, show_preview: !!show_preview, ...utmParams });
   } catch (err) {
-    if (err.message.includes('UNIQUE constraint')) return res.status(409).json({ error: 'Alias en uso' });
+    if (isDuplicateKey(err)) return res.status(409).json({ error: 'Alias en uso' });
     return res.status(500).json({ error: 'Error interno' });
   }
   const shortCode = alias || code;
   res.json({ short: `${BASE_URL}/${shortCode}`, code: shortCode, original: finalUrl });
 });
 
-// GET /api/preview/:code  — public metadata for the preview page (no password_hash)
-app.get('/api/preview/:code', (req, res) => {
-  const entry = db.findByCode(req.params.code);
+// ── PUBLIC ROUTES ──
+app.get('/api/preview/:code', async (req, res) => {
+  const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  const status = urlStatus(entry);
-  if (status === 'expired') return res.status(410).json({ error: 'Expirado' });
-  res.json({
-    code:     entry.alias || entry.code,
-    original: entry.original,
-    short:    `${BASE_URL}/${entry.alias || entry.code}`,
-  });
+  if (urlStatus(entry) === 'expired') return res.status(410).json({ error: 'Expirado' });
+  res.json({ code: entry.alias || entry.code, original: entry.original, short: `${BASE_URL}/${entry.alias || entry.code}` });
 });
 
-// POST /api/record/:code  — record a click from the preview page
-app.post('/api/record/:code', apiLimiter, (req, res) => {
-  const entry = db.findByCode(req.params.code);
+app.post('/api/record/:code', apiLimiter, async (req, res) => {
+  const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  const geo = getGeo(req);
-  db.recordClick(entry.code, {
-    referrer:  req.headers.referer || '',
-    userAgent: req.headers['user-agent'] || '',
-    ...geo,
-  });
+  await db.recordClick(entry.code, { referrer: req.headers.referer || '', userAgent: req.headers['user-agent'] || '', ...getGeo(req) });
   res.json({ ok: true });
 });
 
-// POST /api/unlock/:code  — verify password, return original URL
 app.post('/api/unlock/:code', unlockLimiter, async (req, res) => {
-  const entry = db.findByCode(req.params.code);
+  const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-
-  const status = urlStatus(entry);
-  if (status === 'expired') return res.status(410).json({ error: 'Este enlace ha expirado' });
+  if (urlStatus(entry) === 'expired') return res.status(410).json({ error: 'Este enlace ha expirado' });
   if (!entry.password_hash) return res.status(400).json({ error: 'Este enlace no tiene contraseña' });
-
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Contraseña requerida' });
-
   const match = await bcrypt.compare(password, entry.password_hash);
   if (!match) return res.status(401).json({ error: 'Contraseña incorrecta' });
-
-  // Record click after successful unlock
-  const geo = getGeo(req);
-  db.recordClick(entry.code, {
-    referrer:  req.headers.referer || '',
-    userAgent: req.headers['user-agent'] || '',
-    ...geo,
-  });
-
+  await db.recordClick(entry.code, { referrer: req.headers.referer || '', userAgent: req.headers['user-agent'] || '', ...getGeo(req) });
   res.json({ url: entry.original });
 });
 
-// PUT /api/urls/:code  — edit a URL
+// ── ADMIN ROUTES ──
 app.put('/api/urls/:code', requireAdmin, async (req, res) => {
-  const entry = db.findByCode(req.params.code);
+  const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
 
   const { url, alias, max_clicks, expires_at, show_preview } = req.body;
-
-  if (!url || !isValidUrl(url)) {
+  if (!url || !isValidUrl(url))
     return res.status(400).json({ error: 'URL inválida. Incluye http:// o https://' });
-  }
-  if (alias && !/^[a-zA-Z0-9_-]{3,30}$/.test(alias)) {
+  if (alias && !/^[a-zA-Z0-9_-]{3,30}$/.test(alias))
     return res.status(400).json({ error: 'El alias solo puede contener letras, números, - y _ (3-30 caracteres)' });
-  }
-  if (max_clicks !== undefined && max_clicks !== null && max_clicks !== '') {
+  if (max_clicks != null && max_clicks !== '') {
     const n = parseInt(max_clicks);
-    if (!Number.isInteger(n) || n < 1) {
+    if (!Number.isInteger(n) || n < 1)
       return res.status(400).json({ error: 'El límite de clics debe ser un número entero mayor a 0' });
-    }
   }
-  if (expires_at) {
-    const d = new Date(expires_at);
-    if (isNaN(d.getTime())) {
-      return res.status(400).json({ error: 'Fecha de expiración inválida' });
-    }
-  }
+  if (expires_at && isNaN(new Date(expires_at).getTime()))
+    return res.status(400).json({ error: 'Fecha de expiración inválida' });
 
-  // If alias changed, check it's not taken by another entry
   const newAlias = alias || null;
   if (newAlias && newAlias !== entry.alias) {
-    const existing = db.findByCode(newAlias);
-    if (existing && existing.code !== entry.code) {
+    const existing = await db.findByCode(newAlias);
+    if (existing && existing.code !== entry.code)
       return res.status(409).json({ error: 'El alias ya está en uso. Elige otro.' });
-    }
   }
 
   try {
-    db.updateUrl(entry.code, {
-      original:    url,
-      alias:       newAlias,
-      max_clicks:  max_clicks ? parseInt(max_clicks) : null,
-      expires_at:  expires_at || null,
-      show_preview: !!show_preview,
+    await db.updateUrl(entry.code, {
+      original: url, alias: newAlias,
+      max_clicks: max_clicks ? parseInt(max_clicks) : null,
+      expires_at: expires_at || null, show_preview: !!show_preview,
     });
   } catch (err) {
-    if (err.message.includes('UNIQUE constraint')) {
+    if (isDuplicateKey(err))
       return res.status(409).json({ error: 'El alias ya está en uso. Elige otro.' });
-    }
     logError('PUT /api/urls/:code', err);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 
-  const updated = db.findByCode(entry.code);
-  res.json({
-    ...updated,
-    short: `${BASE_URL}/${updated.alias || updated.code}`,
-    status: urlStatus(updated),
-    protected: !!updated.password_hash,
-    password_hash: undefined,
-  });
+  const updated = await db.findByCode(entry.code);
+  res.json({ ...updated, short: `${BASE_URL}/${updated.alias || updated.code}`, status: urlStatus(updated), protected: !!updated.password_hash, password_hash: undefined });
 });
 
-// DELETE /api/urls/:code  — delete a URL and its clicks
-app.delete('/api/urls/:code', requireAdmin, (req, res) => {
-  const entry = db.findByCode(req.params.code);
+app.delete('/api/urls/:code', requireAdmin, async (req, res) => {
+  const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  const info = db.deleteUrl(entry.code);
+  const info = await db.deleteUrl(entry.code);
   if (info.changes === 0) return res.status(404).json({ error: 'No encontrado' });
   res.json({ ok: true });
 });
 
-// GET /api/urls?q=&status=all|active|expired|protected|limited&sort=newest|oldest|most|least|alpha
-app.get('/api/urls', requireAdmin, (req, res) => {
+app.get('/api/urls', requireAdmin, async (req, res) => {
   const { q = '', status = 'all', sort = 'newest' } = req.query;
-  const urls = db.getAll({ q: q.trim(), status, sort });
-  res.json(urls.map(u => ({
-    ...u,
-    short: `${BASE_URL}/${u.alias || u.code}`,
-    status: urlStatus(u),
-    protected: !!u.password_hash,
-    password_hash: undefined,
-  })));
+  const urls = await db.getAll({ q: q.trim(), status, sort });
+  res.json(urls.map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u), protected: !!u.password_hash, password_hash: undefined })));
 });
 
-// GET /api/urls/:code/health  — get stored health for one URL without re-checking
-app.get('/api/urls/:code/health', requireAdmin, (req, res) => {
-  const entry = db.findByCode(req.params.code);
+app.get('/api/urls/:code/health', requireAdmin, async (req, res) => {
+  const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  res.json({
-    code:          entry.alias || entry.code,
-    health_status: entry.health_status,
-    health_code:   entry.health_code,
-    last_checked:  entry.last_checked,
-  });
+  res.json({ code: entry.alias || entry.code, health_status: entry.health_status, health_code: entry.health_code, last_checked: entry.last_checked });
 });
 
-// GET /api/stats/:code
-app.get('/api/stats/:code', requireAdmin, (req, res) => {
-  const entry = db.getStats(req.params.code);
+app.get('/api/stats/:code', requireAdmin, async (req, res) => {
+  const entry = await db.getStats(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  res.json({
-    ...entry,
-    short: `${BASE_URL}/${entry.alias || entry.code}`,
-    status: urlStatus(entry),
-    protected: !!entry.password_hash,
-    password_hash: undefined,
-  });
+  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), protected: !!entry.password_hash, password_hash: undefined });
 });
 
-// GET /api/analytics/:code
-app.get('/api/analytics/:code', requireAdmin, (req, res) => {
-  const entry = db.getStats(req.params.code);
+app.get('/api/analytics/:code', requireAdmin, async (req, res) => {
+  const entry = await db.getStats(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  const analytics = db.getAnalytics(entry.code);
-  res.json({
-    ...entry,
-    short: `${BASE_URL}/${entry.alias || entry.code}`,
-    status: urlStatus(entry),
-    protected: !!entry.password_hash,
-    password_hash: undefined,
-    ...analytics,
-  });
+  const analytics = await db.getAnalytics(entry.code);
+  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), protected: !!entry.password_hash, password_hash: undefined, ...analytics });
 });
 
-// GET /api/qr/:code
 app.get('/api/qr/:code', apiLimiter, async (req, res) => {
-  const entry = db.findByCode(req.params.code);
+  const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-
   const shortUrl = `${BASE_URL}/${entry.alias || entry.code}`;
   const format   = req.query.format === 'svg' ? 'svg' : 'png';
   const size     = Math.min(Math.max(parseInt(req.query.size) || 300, 100), 1000);
-
   try {
     if (format === 'svg') {
       const svg = await QRCode.toString(shortUrl, { type: 'svg', width: size, margin: 2 });
       res.set('Content-Type', 'image/svg+xml');
       return res.send(svg);
     }
-    const buffer = await QRCode.toBuffer(shortUrl, {
-      type: 'png', width: size, margin: 2,
-      color: { dark: '#4f46e5', light: '#ffffff' },
-    });
+    const buffer = await QRCode.toBuffer(shortUrl, { type: 'png', width: size, margin: 2, color: { dark: '#4f46e5', light: '#ffffff' } });
     res.set('Content-Type', 'image/png');
     res.set('Content-Disposition', `inline; filename="qr-${entry.alias || entry.code}.png"`);
     res.send(buffer);
@@ -586,63 +439,41 @@ app.get('/api/qr/:code', apiLimiter, async (req, res) => {
   }
 });
 
-// POST /api/health/:code  — check one URL now
 app.post('/api/health/:code', requireAdmin, async (req, res) => {
-  const entry = db.findByCode(req.params.code);
+  const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  const result = await checkOne(entry.code, entry.original);
-  res.json(result);
+  res.json(await checkOne(entry.code, entry.original));
 });
 
-// POST /api/health  — check all stale URLs now
 app.post('/api/health', requireAdmin, async (req, res) => {
-  const count = await checkStale();
-  res.json({ checked: count });
+  res.json({ checked: await checkStale() });
 });
 
-// GET /api/export/csv?q=&status=&sort=
-app.get('/api/export/csv', requireAdmin, (req, res) => {
+app.get('/api/export/csv', requireAdmin, async (req, res) => {
   const { q = '', status = 'all', sort = 'newest' } = req.query;
-  const urls = db.getAll({ q: q.trim(), status, sort });
-
+  const urls = await db.getAll({ q: q.trim(), status, sort });
   const escape = v => {
-    if (v === null || v === undefined) return '';
+    if (v == null) return '';
     const str = String(v);
     return str.includes(',') || str.includes('"') || str.includes('\n')
       ? `"${str.replace(/"/g, '""')}"` : str;
   };
-
-  const headers = ['Enlace corto', 'URL original', 'Código', 'Alias', 'Clics', 'Límite clics', 'Expira el', 'Protegida', 'Estado', 'Creada el'];
-  const rows = urls.map(u => {
-    const shortUrl = `${BASE_URL}/${u.alias || u.code}`;
-    const status   = urlStatus(u);
-    return [
-      shortUrl,
-      u.original,
-      u.code,
-      u.alias || '',
-      u.clicks,
-      u.max_clicks || '',
-      u.expires_at || '',
-      u.password_hash ? 'Sí' : 'No',
-      status === 'expired' ? 'Expirada' : 'Activa',
-      u.created_at,
-    ].map(escape).join(',');
-  });
-
+  const headers = ['Enlace corto','URL original','Código','Alias','Clics','Límite clics','Expira el','Protegida','Estado','Creada el'];
+  const rows = urls.map(u => [
+    `${BASE_URL}/${u.alias || u.code}`, u.original, u.code, u.alias || '',
+    u.clicks, u.max_clicks || '', u.expires_at || '',
+    u.password_hash ? 'Sí' : 'No',
+    urlStatus(u) === 'expired' ? 'Expirada' : 'Activa', u.created_at,
+  ].map(escape).join(','));
   const csv = [headers.join(','), ...rows].join('\r\n');
-  const filename = `labshorturl-export-${new Date().toISOString().slice(0, 10)}.csv`;
-
   res.set('Content-Type', 'text/csv; charset=utf-8');
-  res.set('Content-Disposition', `attachment; filename="${filename}"`);
-  res.send('\uFEFF' + csv); // BOM for Excel UTF-8 compatibility
+  res.set('Content-Disposition', `attachment; filename="labshorturl-export-${new Date().toISOString().slice(0,10)}.csv"`);
+  res.send('\uFEFF' + csv);
 });
 
-// GET /health  — para load balancers, Docker health checks y Kubernetes probes
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
   try {
-    // Verifica que la DB responde
-    db.getGlobalStats();
+    await db.getGlobalStats();
     res.json({ status: 'ok', uptime: Math.floor(process.uptime()), db: 'ok' });
   } catch (err) {
     logError('GET /health', err);
@@ -650,81 +481,60 @@ app.get('/health', (req, res) => {
   }
 });
 
-// GET /api/analytics
-app.get('/api/analytics', requireAdmin, (req, res) => {
-  const global = db.getGlobalStats();
-  const top = db.getTopUrls().map(u => ({
-    ...u,
-    short: `${BASE_URL}/${u.alias || u.code}`,
-    status: urlStatus(u),
-    protected: !!u.password_hash,
-    password_hash: undefined,
-  }));
-  res.json({ ...global, topUrls: top });
+app.get('/api/analytics', requireAdmin, async (req, res) => {
+  const [global, top] = await Promise.all([db.getGlobalStats(), db.getTopUrls()]);
+  res.json({ ...global, topUrls: top.map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u), protected: !!u.password_hash, password_hash: undefined })) });
 });
 
-// GET /:code  — redirect (or show password page)
-app.get('/:code', redirectLimiter, (req, res) => {
-  const { code } = req.params;
-  const entry = db.findByCode(code);
+// ── REDIRECT ──
+app.get('/:code', redirectLimiter, async (req, res) => {
+  const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).sendFile(path.join(__dirname, '..', 'public', 'expired.html'));
-
-  const status = urlStatus(entry);
-  if (status === 'expired') {
-    return res.status(410).sendFile(path.join(__dirname, '..', 'public', 'expired.html'));
-  }
-
-  // Password-protected: show unlock page (takes priority over preview)
-  if (entry.password_hash) {
-    return res.sendFile(path.join(__dirname, '..', 'public', 'unlock.html'));
-  }
-
-  // Preview countdown page
-  if (entry.show_preview) {
-    return res.sendFile(path.join(__dirname, '..', 'public', 'preview.html'));
-  }
-
-  const geo = getGeo(req);
-  db.recordClick(entry.code, {
-    referrer:  req.headers.referer || req.headers.referrer || '',
-    userAgent: req.headers['user-agent'] || '',
-    ...geo,
-  });
+  if (urlStatus(entry) === 'expired') return res.status(410).sendFile(path.join(__dirname, '..', 'public', 'expired.html'));
+  if (entry.password_hash) return res.sendFile(path.join(__dirname, '..', 'public', 'unlock.html'));
+  if (entry.show_preview)  return res.sendFile(path.join(__dirname, '..', 'public', 'preview.html'));
+  await db.recordClick(entry.code, { referrer: req.headers.referer || req.headers.referrer || '', userAgent: req.headers['user-agent'] || '', ...getGeo(req) });
   res.redirect(302, entry.original);
 });
 
-// ── EXPRESS ERROR HANDLER (catch-all) ──
+// ── ERROR HANDLER ──
 app.use((err, req, res, _next) => {
   logError(`${req.method} ${req.path}`, err);
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`LabShortURL corriendo en ${BASE_URL}`);
-  startBackgroundChecker();
-});
+// ── STARTUP ──
+async function start() {
+  await db.init();
+  console.log('✓ Base de datos PostgreSQL lista');
 
-// ── GRACEFUL SHUTDOWN ──
-function shutdown(signal) {
-  console.log(`\n${signal} recibido. Cerrando servidor…`);
-  server.close(() => {
-    console.log('Servidor cerrado correctamente.');
-    process.exit(0);
+  const server = app.listen(PORT, () => {
+    console.log(`LabShortURL corriendo en ${BASE_URL}`);
+    startBackgroundChecker();
   });
-  // Si no cierra en 10s, forzar
-  setTimeout(() => { process.exit(1); }, 10_000);
-}
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT',  () => shutdown('SIGINT'));
 
-// Captura excepciones no manejadas para que queden en el log
+  function shutdown(signal) {
+    console.log(`\n${signal} recibido. Cerrando servidor…`);
+    server.close(async () => {
+      await db.pool.end();
+      console.log('Servidor y pool de DB cerrados correctamente.');
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000);
+  }
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
+}
+
 process.on('uncaughtException',  err => { logError('uncaughtException',  err); process.exit(1); });
 process.on('unhandledRejection', err => { logError('unhandledRejection', err); process.exit(1); });
 
+start().catch(err => { logError('startup', err); process.exit(1); });
+
+// ── HELPERS ──
 function getGeo(req) {
   const forwarded = req.headers['x-forwarded-for'];
   const ip = forwarded ? forwarded.split(',')[0].trim() : req.socket.remoteAddress;
-  // Strip IPv6 prefix from IPv4-mapped addresses
   const clean = ip?.replace(/^::ffff:/, '') || '';
   const geo = geoip.lookup(clean);
   return {
@@ -734,7 +544,6 @@ function getGeo(req) {
   };
 }
 
-// ISO 3166-1 alpha-2 to country name (common subset)
 function isoToName(code) {
   const map = {
     AR:'Argentina', BO:'Bolivia', BR:'Brasil', CL:'Chile', CO:'Colombia',
@@ -760,7 +569,5 @@ function isValidUrl(str) {
   try {
     const u = new URL(str);
     return u.protocol === 'http:' || u.protocol === 'https:';
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
