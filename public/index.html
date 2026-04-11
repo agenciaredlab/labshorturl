@@ -171,6 +171,14 @@
   <header class="py-7 text-center text-white relative">
     <!-- Top-right actions: dark toggle + logout -->
     <div class="absolute right-4 top-4 flex items-center gap-2">
+      <a id="superAdminBtn" href="/superadmin"
+        class="hidden items-center gap-1.5 text-white/70 hover:text-white text-xs font-medium px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 transition"
+        title="Super Admin">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+        </svg>
+        Super Admin
+      </a>
       <button id="logoutBtn" onclick="logout()"
         class="hidden items-center gap-1.5 text-white/70 hover:text-white text-xs font-medium px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 transition"
         title="Cerrar sesión">
@@ -1427,10 +1435,13 @@
         return false;
       }
       const data = await res.json();
-      // Show logout button once authenticated
+      // Show logout + super admin button once authenticated
       const btn = document.getElementById('logoutBtn');
       btn.classList.remove('hidden');
       btn.classList.add('flex');
+      const sa = document.getElementById('superAdminBtn');
+      sa.classList.remove('hidden');
+      sa.classList.add('flex');
       return true;
     }
 

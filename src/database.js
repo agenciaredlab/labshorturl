@@ -344,4 +344,66 @@ module.exports = {
     const result = await pool.query(`DELETE FROM api_keys WHERE id = $1`, [id]);
     return { changes: result.rowCount };
   },
+
+  // ── SUPER ADMIN ──
+  async getGlobalAnalyticsFull() {
+    const [summary, byDay, byHour, byCountry, byBrowser, byDevice, byReferrer, recent, topUrls] =
+      await Promise.all([
+        queryOne(`
+          SELECT
+            (SELECT COUNT(*)::int FROM urls)                                                        AS total_urls,
+            (SELECT COUNT(*)::int FROM urls
+              WHERE (expires_at IS NULL OR expires_at > NOW())
+                AND (max_clicks IS NULL OR clicks < max_clicks)
+                AND password_hash IS NULL)                                                          AS active_urls,
+            (SELECT COUNT(*)::int FROM urls
+              WHERE (expires_at IS NOT NULL AND expires_at <= NOW())
+                 OR (max_clicks IS NOT NULL AND clicks >= max_clicks))                              AS expired_urls,
+            (SELECT COUNT(*)::int FROM urls WHERE password_hash IS NOT NULL)                        AS protected_urls,
+            (SELECT COUNT(*)::int FROM clicks)                                                      AS total_clicks,
+            (SELECT COUNT(*)::int FROM clicks WHERE clicked_at >= CURRENT_DATE)                     AS clicks_today,
+            (SELECT COUNT(*)::int FROM clicks WHERE clicked_at >= NOW() - INTERVAL '1 day')         AS clicks_24h,
+            (SELECT COUNT(*)::int FROM clicks WHERE clicked_at >= NOW() - INTERVAL '7 days')        AS clicks_7d,
+            (SELECT COUNT(*)::int FROM clicks WHERE clicked_at >= NOW() - INTERVAL '30 days')       AS clicks_30d
+        `),
+        queryAll(`
+          SELECT TO_CHAR(clicked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, COUNT(*)::int AS count
+          FROM clicks GROUP BY day ORDER BY day DESC LIMIT 30
+        `),
+        queryAll(`
+          SELECT EXTRACT(HOUR FROM clicked_at AT TIME ZONE 'UTC')::int AS hour, COUNT(*)::int AS count
+          FROM clicks WHERE clicked_at >= CURRENT_DATE
+          GROUP BY hour ORDER BY hour
+        `),
+        queryAll(`
+          SELECT COALESCE(country, 'Desconocido') AS label, country_code, COUNT(*)::int AS count
+          FROM clicks GROUP BY country, country_code ORDER BY count DESC LIMIT 15
+        `),
+        queryAll(`
+          SELECT ua_browser AS label, COUNT(*)::int AS count
+          FROM clicks GROUP BY ua_browser ORDER BY count DESC LIMIT 10
+        `),
+        queryAll(`
+          SELECT ua_device AS label, COUNT(*)::int AS count
+          FROM clicks GROUP BY ua_device ORDER BY count DESC LIMIT 10
+        `),
+        queryAll(`
+          SELECT COALESCE(referrer, 'Directo') AS label, COUNT(*)::int AS count
+          FROM clicks GROUP BY referrer ORDER BY count DESC LIMIT 10
+        `),
+        queryAll(`
+          SELECT c.clicked_at, c.url_code, u.alias, u.original,
+                 c.referrer, c.ua_browser, c.ua_device,
+                 c.country, c.country_code, c.city
+          FROM clicks c LEFT JOIN urls u ON u.code = c.url_code
+          ORDER BY c.clicked_at DESC LIMIT 50
+        `),
+        queryAll(`
+          SELECT code, alias, original, clicks, max_clicks, expires_at,
+                 password_hash, health_status, created_at
+          FROM urls ORDER BY clicks DESC LIMIT 20
+        `),
+      ]);
+    return { summary, byDay, byHour, byCountry, byBrowser, byDevice, byReferrer, recent, topUrls };
+  },
 };

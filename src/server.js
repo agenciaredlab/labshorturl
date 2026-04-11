@@ -499,6 +499,16 @@ app.get('/api/analytics', requireAdmin, async (req, res) => {
   res.json({ ...global, topUrls: top.map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u), protected: !!u.password_hash, password_hash: undefined })) });
 });
 
+// ── SUPER ADMIN ──
+app.get('/superadmin', requireAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'superadmin.html'));
+});
+
+app.get('/api/superadmin/stats', requireAdmin, async (req, res) => {
+  const stats = await db.getGlobalAnalyticsFull();
+  res.json({ ...stats, uptime: Math.floor(process.uptime()) });
+});
+
 // ── REDIRECT ──
 app.get('/:code', redirectLimiter, async (req, res) => {
   const entry = await db.findByCode(req.params.code);

@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Super Admin — LabShortURL</title>
+  <script>if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark');</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+
+    :root {
+      --bg-card:    rgba(255,255,255,0.97);
+      --bg-modal:   #ffffff;
+      --bg-input:   #ffffff;
+      --bg-muted:   #f9fafb;
+      --border:     #e5e7eb;
+      --text-main:  #1f2937;
+      --text-soft:  #6b7280;
+      --text-xsoft: #9ca3af;
+      --gradient:   linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .dark {
+      --bg-card:    rgba(30, 27, 46, 0.97);
+      --bg-modal:   #1e1b2e;
+      --bg-input:   #2a2640;
+      --bg-muted:   #252238;
+      --border:     #3d3a55;
+      --text-main:  #f0eeff;
+      --text-soft:  #a89ec8;
+      --text-xsoft: #6e6890;
+      --gradient:   linear-gradient(135deg, #4a3fa0 0%, #5a3080 100%);
+    }
+
+    .gradient-bg { background: var(--gradient); transition: background 0.3s; }
+    .card {
+      backdrop-filter: blur(16px);
+      background: var(--bg-card);
+      color: var(--text-main);
+      transition: background 0.3s, color 0.3s;
+    }
+    .kpi-card {
+      background: linear-gradient(135deg, #667eea22, #764ba211);
+      border: 1px solid #667eea33;
+    }
+    .dark .kpi-card { background: linear-gradient(135deg, #667eea15, #764ba20a); border-color: #667eea25; }
+
+    .dark .text-gray-900 { color: var(--text-main) !important; }
+    .dark .text-gray-700 { color: var(--text-soft) !important; }
+    .dark .text-gray-600 { color: var(--text-soft) !important; }
+    .dark .text-gray-500 { color: var(--text-soft) !important; }
+    .dark .text-gray-400 { color: var(--text-xsoft) !important; }
+    .dark .text-gray-300 { color: var(--text-xsoft) !important; }
+    .dark .bg-white, .dark .bg-gray-50 { background: var(--bg-muted) !important; }
+    .dark .border-gray-200, .dark .border-gray-100 { border-color: var(--border) !important; }
+    .dark .hover\:bg-gray-50:hover { background: var(--bg-muted) !important; }
+    .dark .divide-gray-100 > * + * { border-color: var(--border) !important; }
+
+    #darkToggle { transition: all 0.3s; }
+
+    .sa-tab-active   { border-bottom: 2px solid #667eea; color: #667eea; font-weight: 600; }
+    .sa-tab-inactive { color: var(--text-soft); }
+    .sa-tab-inactive:hover { color: var(--text-main); }
+
+    .health-ok      { background: #10b981; }
+    .health-warn    { background: #f59e0b; }
+    .health-error   { background: #ef4444; }
+    .health-unknown { background: #9ca3af; }
+
+    .bar-fill {
+      height: 8px; border-radius: 9999px;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      transition: width 0.6s ease;
+    }
+
+    .refresh-ring {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: conic-gradient(rgba(255,255,255,0.9) var(--pct,0%), rgba(255,255,255,0.2) var(--pct,0%));
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .activity-row:hover { background: var(--bg-muted); }
+
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .live-dot { animation: pulse-dot 2s infinite; }
+  </style>
+</head>
+<body class="min-h-screen gradient-bg flex flex-col">
+
+<!-- Header -->
+<header class="py-6 text-center text-white relative">
+  <div class="absolute left-4 top-4">
+    <a href="/" class="flex items-center gap-1.5 text-white/70 hover:text-white text-xs font-medium px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 transition">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 12H5M12 5l-7 7 7 7"/>
+      </svg>
+      Dashboard
+    </a>
+  </div>
+  <div class="absolute right-4 top-4 flex items-center gap-2">
+    <!-- Refresh ring -->
+    <div class="flex items-center gap-1.5 text-white/60 text-xs">
+      <div id="refreshRing" class="refresh-ring" title="Actualización automática">
+        <span id="refreshSec" class="text-white text-[9px] font-bold leading-none">30</span>
+      </div>
+    </div>
+    <button onclick="loadAll()" title="Actualizar ahora"
+      class="w-9 h-9 flex items-center justify-center rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 transition text-white">
+      <svg id="reloadIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+    </button>
+    <button id="darkToggle" onclick="toggleDark()"
+      class="w-9 h-9 flex items-center justify-center rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 transition"
+      title="Cambiar tema">
+      <svg id="iconSun" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+      <svg id="iconMoon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="flex items-center justify-center gap-3 mb-1">
+    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+      <rect width="36" height="36" rx="10" fill="rgba(255,255,255,0.2)"/>
+      <rect x="7" y="7" width="8" height="8" rx="1.5" fill="white"/>
+      <rect x="21" y="7" width="8" height="8" rx="1.5" fill="white"/>
+      <rect x="7" y="21" width="8" height="8" rx="1.5" fill="white"/>
+      <rect x="21" y="21" width="8" height="8" rx="1.5" fill="white"/>
+    </svg>
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Super Admin</h1>
+      <p class="text-white/60 text-xs">LabShortURL · Panel de control global</p>
+    </div>
+  </div>
+
+  <!-- Live indicator -->
+  <div class="flex items-center justify-center gap-1.5 mt-2">
+    <span class="live-dot w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+    <span class="text-white/60 text-xs">En vivo</span>
+    <span class="text-white/40 text-xs mx-1">·</span>
+    <span id="lastUpdated" class="text-white/50 text-xs">—</span>
+  </div>
+</header>
+
+<!-- Main -->
+<main class="flex-1 px-4 pb-12 max-w-7xl mx-auto w-full space-y-6">
+
+  <!-- ── KPI CARDS ── -->
+  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">URLs totales</p>
+      <p id="kpiTotalUrls" class="text-white text-2xl font-bold">—</p>
+    </div>
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">URLs activas</p>
+      <p id="kpiActiveUrls" class="text-emerald-300 text-2xl font-bold">—</p>
+    </div>
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">Clics totales</p>
+      <p id="kpiTotalClicks" class="text-white text-2xl font-bold">—</p>
+    </div>
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">Clics hoy</p>
+      <p id="kpiToday" class="text-yellow-300 text-2xl font-bold">—</p>
+    </div>
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">Últimas 24h</p>
+      <p id="kpi24h" class="text-sky-300 text-2xl font-bold">—</p>
+    </div>
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">Últimos 7d</p>
+      <p id="kpi7d" class="text-purple-300 text-2xl font-bold">—</p>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW ── -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <!-- Clicks por día (30d) -->
+    <div class="card rounded-2xl shadow-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        Clics por día <span class="text-gray-400 font-normal">(últimos 30 días)</span>
+      </h2>
+      <div style="height:200px"><canvas id="chartDay"></canvas></div>
+    </div>
+
+    <!-- Clics por hora (hoy) -->
+    <div class="card rounded-2xl shadow-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#764ba2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        Clics por hora <span class="text-gray-400 font-normal">(hoy, UTC)</span>
+      </h2>
+      <div style="height:200px"><canvas id="chartHour"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── BREAKDOWNS ROW ── -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <!-- Breakdown tabs -->
+    <div class="card rounded-2xl shadow-lg p-5">
+      <div class="flex gap-4 border-b mb-4" style="border-color:var(--border)">
+        <button class="sa-tab-active pb-2 text-xs font-medium" onclick="setTab('country',this)">País</button>
+        <button class="sa-tab-inactive pb-2 text-xs font-medium" onclick="setTab('browser',this)">Navegador</button>
+        <button class="sa-tab-inactive pb-2 text-xs font-medium" onclick="setTab('device',this)">Dispositivo</button>
+        <button class="sa-tab-inactive pb-2 text-xs font-medium" onclick="setTab('referrer',this)">Referrer</button>
+      </div>
+      <div id="breakdownList" class="space-y-2"></div>
+    </div>
+
+    <!-- System status -->
+    <div class="card rounded-2xl shadow-lg p-5 flex flex-col justify-between">
+      <h2 class="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        Estado del sistema
+      </h2>
+      <div class="space-y-3 flex-1">
+        <div class="flex items-center justify-between py-2 border-b" style="border-color:var(--border)">
+          <span class="text-xs text-gray-500">Servidor Node.js</span>
+          <span class="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Online
+          </span>
+        </div>
+        <div class="flex items-center justify-between py-2 border-b" style="border-color:var(--border)">
+          <span class="text-xs text-gray-500">Base de datos</span>
+          <span id="dbStatus" class="flex items-center gap-1.5 text-xs font-medium text-gray-400">
+            <span class="w-2 h-2 rounded-full bg-gray-400 inline-block"></span> —
+          </span>
+        </div>
+        <div class="flex items-center justify-between py-2 border-b" style="border-color:var(--border)">
+          <span class="text-xs text-gray-500">Uptime del servidor</span>
+          <span id="uptimeVal" class="text-xs font-semibold text-gray-700">—</span>
+        </div>
+        <div class="flex items-center justify-between py-2 border-b" style="border-color:var(--border)">
+          <span class="text-xs text-gray-500">URLs expiradas</span>
+          <span id="kpiExpired" class="text-xs font-semibold text-red-500">—</span>
+        </div>
+        <div class="flex items-center justify-between py-2 border-b" style="border-color:var(--border)">
+          <span class="text-xs text-gray-500">URLs protegidas</span>
+          <span id="kpiProtected" class="text-xs font-semibold text-amber-500">—</span>
+        </div>
+        <div class="flex items-center justify-between py-2">
+          <span class="text-xs text-gray-500">Clics últimos 30d</span>
+          <span id="kpi30d" class="text-xs font-semibold text-purple-600">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TOP URLs TABLE ── -->
+  <div class="card rounded-2xl shadow-lg p-5">
+    <h2 class="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 17 13 17 13 3"/><polyline points="6 3 6 14"/><polyline points="2 17 6 17"/><polyline points="18 3 22 7 18 7"/>
+        <polyline points="2 13 6 17 10 13"/>
+      </svg>
+      Top 20 URLs por clics
+    </h2>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-gray-400 uppercase tracking-wide">
+            <th class="pb-2 font-medium w-8">#</th>
+            <th class="pb-2 font-medium">Short URL</th>
+            <th class="pb-2 font-medium hidden sm:table-cell">Destino</th>
+            <th class="pb-2 font-medium text-right">Clics</th>
+            <th class="pb-2 font-medium text-center hidden md:table-cell">Estado</th>
+            <th class="pb-2 font-medium text-center hidden md:table-cell">Health</th>
+            <th class="pb-2 font-medium hidden lg:table-cell">Creado</th>
+          </tr>
+        </thead>
+        <tbody id="topUrlsBody" class="divide-y divide-gray-100">
+          <tr><td colspan="7" class="py-6 text-center text-gray-400">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── RECENT ACTIVITY ── -->
+  <div class="card rounded-2xl shadow-lg p-5">
+    <h2 class="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+      <span class="live-dot w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+      Actividad reciente <span class="text-gray-400 font-normal">(últimos 50 clics)</span>
+    </h2>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-gray-400 uppercase tracking-wide">
+            <th class="pb-2 font-medium">Hace</th>
+            <th class="pb-2 font-medium">URL</th>
+            <th class="pb-2 font-medium hidden sm:table-cell">País</th>
+            <th class="pb-2 font-medium hidden md:table-cell">Navegador</th>
+            <th class="pb-2 font-medium hidden md:table-cell">Dispositivo</th>
+            <th class="pb-2 font-medium hidden lg:table-cell">Referrer</th>
+          </tr>
+        </thead>
+        <tbody id="recentBody" class="divide-y divide-gray-100">
+          <tr><td colspan="6" class="py-6 text-center text-gray-400">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── THEME ──
+function toggleDark() {
+  const isDark = document.documentElement.classList.toggle('dark');
+  localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  document.getElementById('iconSun').classList.toggle('hidden', !isDark);
+  document.getElementById('iconMoon').classList.toggle('hidden', isDark);
+  updateChartColors();
+}
+(function() {
+  const isDark = document.documentElement.classList.contains('dark');
+  document.getElementById('iconSun').classList.toggle('hidden', !isDark);
+  document.getElementById('iconMoon').classList.toggle('hidden', isDark);
+})();
+
+// ── HELPERS ──
+function fmt(n) {
+  if (n === null || n === undefined) return '—';
+  return Number(n).toLocaleString('es-ES');
+}
+
+function ago(dateStr) {
+  const diff = (Date.now() - new Date(dateStr)) / 1000;
+  if (diff < 60)   return `${Math.floor(diff)}s`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h`;
+  return `${Math.floor(diff/86400)}d`;
+}
+
+function formatUptime(s) {
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const parts = [];
+  if (d) parts.push(`${d}d`);
+  if (h) parts.push(`${h}h`);
+  parts.push(`${m}m`);
+  return parts.join(' ');
+}
+
+function flag(cc) {
+  if (!cc || cc.length !== 2) return '🌍';
+  return String.fromCodePoint(...[...cc.toUpperCase()].map(c => 0x1F1E0 + c.charCodeAt(0) - 65));
+}
+
+function urlStatus(row) {
+  if (row.password_hash) return '<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-medium">🔒 Protegida</span>';
+  const now = Date.now();
+  if (row.expires_at && new Date(row.expires_at) <= now)
+    return '<span class="px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[10px] font-medium">Expirada</span>';
+  if (row.max_clicks && row.clicks >= row.max_clicks)
+    return '<span class="px-1.5 py-0.5 rounded bg-red-100 text-red-600 text-[10px] font-medium">Límite</span>';
+  return '<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-medium">Activa</span>';
+}
+
+function healthDot(status) {
+  const map = { ok:'health-ok', warn:'health-warn', error:'health-error', unknown:'health-unknown' };
+  const cls = map[status] || 'health-unknown';
+  return `<span class="inline-block w-2.5 h-2.5 rounded-full ${cls}" title="${status || 'unknown'}"></span>`;
+}
+
+function shortCode(row) {
+  return row.alias || row.code;
+}
+
+function truncate(str, n = 40) {
+  if (!str) return '—';
+  return str.length > n ? str.slice(0, n) + '…' : str;
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'2-digit' });
+}
+
+// ── CHARTS ──
+let chartDay = null, chartHour = null;
+
+function chartColors() {
+  const dark = document.documentElement.classList.contains('dark');
+  return {
+    grid: dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)',
+    tick: dark ? '#a89ec8' : '#9ca3af',
+  };
+}
+
+function buildDayChart(data) {
+  // Fill last 30 days, sorted ascending
+  const sorted = [...data].sort((a, b) => a.day < b.day ? -1 : 1);
+  const labels = sorted.map(r => r.day.slice(5)); // MM-DD
+  const values = sorted.map(r => r.count);
+
+  const { grid, tick } = chartColors();
+  const cfg = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: '#667eea',
+        backgroundColor: 'rgba(102,126,234,0.12)',
+        borderWidth: 2,
+        tension: 0.4,
+        fill: true,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        pointBackgroundColor: '#667eea',
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { grid: { color: grid }, ticks: { color: tick, maxTicksLimit: 10, maxRotation: 0 } },
+        y: { grid: { color: grid }, ticks: { color: tick, precision: 0 }, beginAtZero: true },
+      },
+    }
+  };
+  if (chartDay) { chartDay.data = cfg.data; chartDay.update(); return; }
+  chartDay = new Chart(document.getElementById('chartDay'), cfg);
+}
+
+function buildHourChart(data) {
+  // Fill all 24 hours
+  const hourMap = {};
+  data.forEach(r => { hourMap[r.hour] = r.count; });
+  const labels = Array.from({length:24}, (_,i) => `${String(i).padStart(2,'0')}h`);
+  const values = Array.from({length:24}, (_,i) => hourMap[i] || 0);
+
+  const { grid, tick } = chartColors();
+  const cfg = {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: 'rgba(118,75,162,0.7)',
+        borderColor: '#764ba2',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { grid: { color: grid }, ticks: { color: tick, maxRotation: 0, font: { size: 9 } } },
+        y: { grid: { color: grid }, ticks: { color: tick, precision: 0 }, beginAtZero: true },
+      },
+    }
+  };
+  if (chartHour) { chartHour.data = cfg.data; chartHour.update(); return; }
+  chartHour = new Chart(document.getElementById('chartHour'), cfg);
+}
+
+function updateChartColors() {
+  const { grid, tick } = chartColors();
+  [chartDay, chartHour].forEach(c => {
+    if (!c) return;
+    c.options.scales.x.grid.color = grid;
+    c.options.scales.x.ticks.color = tick;
+    c.options.scales.y.grid.color = grid;
+    c.options.scales.y.ticks.color = tick;
+    c.update();
+  });
+}
+
+// ── BREAKDOWN TABS ──
+let breakdownData = {};
+let currentTab = 'country';
+
+function setTab(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.sa-tab-active,.sa-tab-inactive').forEach(b => {
+    b.className = b === btn ? 'sa-tab-active pb-2 text-xs font-medium' : 'sa-tab-inactive pb-2 text-xs font-medium';
+  });
+  renderBreakdown();
+}
+
+function renderBreakdown() {
+  const list = document.getElementById('breakdownList');
+  const data = breakdownData[currentTab] || [];
+  if (!data.length) { list.innerHTML = '<p class="text-xs text-gray-400 text-center py-4">Sin datos</p>'; return; }
+  const max = data[0].count;
+  list.innerHTML = data.slice(0, 8).map(r => {
+    const pct = max ? Math.round(r.count / max * 100) : 0;
+    const label = currentTab === 'country'
+      ? `${flag(r.country_code)} ${r.label}`
+      : r.label || '—';
+    return `
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-gray-600 w-28 truncate flex-shrink-0">${label}</span>
+        <div class="flex-1 bg-gray-100 rounded-full overflow-hidden dark:bg-gray-700" style="height:8px">
+          <div class="bar-fill" style="width:${pct}%"></div>
+        </div>
+        <span class="text-xs font-semibold text-gray-700 w-10 text-right flex-shrink-0">${fmt(r.count)}</span>
+      </div>`;
+  }).join('');
+}
+
+// ── TOP URLS ──
+function renderTopUrls(rows) {
+  const tbody = document.getElementById('topUrlsBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-gray-400">Sin datos</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((r, i) => `
+    <tr class="activity-row transition-colors">
+      <td class="py-2 pr-2 text-gray-400 font-bold">${i+1}</td>
+      <td class="py-2 pr-3">
+        <a href="/${shortCode(r)}" target="_blank"
+          class="text-purple-600 hover:underline font-medium">${shortCode(r)}</a>
+      </td>
+      <td class="py-2 pr-3 hidden sm:table-cell">
+        <span class="text-gray-500" title="${r.original}">${truncate(r.original, 45)}</span>
+      </td>
+      <td class="py-2 pr-3 text-right font-bold text-gray-700">${fmt(r.clicks)}</td>
+      <td class="py-2 pr-3 text-center hidden md:table-cell">${urlStatus(r)}</td>
+      <td class="py-2 pr-3 text-center hidden md:table-cell">${healthDot(r.health_status)}</td>
+      <td class="py-2 hidden lg:table-cell text-gray-400">${fmtDate(r.created_at)}</td>
+    </tr>`).join('');
+}
+
+// ── RECENT ACTIVITY ──
+function renderRecent(rows) {
+  const tbody = document.getElementById('recentBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-gray-400">Sin actividad</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const code = r.alias || r.url_code;
+    return `
+      <tr class="activity-row transition-colors">
+        <td class="py-1.5 pr-3 text-gray-400 whitespace-nowrap">${ago(r.clicked_at)}</td>
+        <td class="py-1.5 pr-3">
+          <a href="/${code}" target="_blank" class="text-purple-600 hover:underline font-medium">${code}</a>
+        </td>
+        <td class="py-1.5 pr-3 hidden sm:table-cell whitespace-nowrap">
+          ${flag(r.country_code)} <span class="text-gray-500">${r.country || '—'}</span>
+          ${r.city ? `<span class="text-gray-400">, ${r.city}</span>` : ''}
+        </td>
+        <td class="py-1.5 pr-3 hidden md:table-cell text-gray-500">${r.ua_browser || '—'}</td>
+        <td class="py-1.5 pr-3 hidden md:table-cell text-gray-500">${r.ua_device || '—'}</td>
+        <td class="py-1.5 hidden lg:table-cell text-gray-400 truncate max-w-xs">${r.referrer || 'Directo'}</td>
+      </tr>`;
+  }).join('');
+}
+
+// ── LOAD DATA ──
+async function loadAll() {
+  const icon = document.getElementById('reloadIcon');
+  icon.style.opacity = '0.4';
+  try {
+    const res = await fetch('/api/superadmin/stats');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+
+    // KPIs
+    document.getElementById('kpiTotalUrls').textContent   = fmt(d.summary?.total_urls);
+    document.getElementById('kpiActiveUrls').textContent  = fmt(d.summary?.active_urls);
+    document.getElementById('kpiTotalClicks').textContent = fmt(d.summary?.total_clicks);
+    document.getElementById('kpiToday').textContent       = fmt(d.summary?.clicks_today);
+    document.getElementById('kpi24h').textContent         = fmt(d.summary?.clicks_24h);
+    document.getElementById('kpi7d').textContent          = fmt(d.summary?.clicks_7d);
+    document.getElementById('kpiExpired').textContent     = fmt(d.summary?.expired_urls);
+    document.getElementById('kpiProtected').textContent   = fmt(d.summary?.protected_urls);
+    document.getElementById('kpi30d').textContent         = fmt(d.summary?.clicks_30d);
+
+    // Uptime
+    document.getElementById('uptimeVal').textContent = formatUptime(d.uptime || 0);
+
+    // DB status
+    const dbEl = document.getElementById('dbStatus');
+    dbEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+      <span class="text-emerald-600">Conectada</span>`;
+
+    // Charts
+    buildDayChart(d.byDay || []);
+    buildHourChart(d.byHour || []);
+
+    // Breakdowns
+    breakdownData = {
+      country:  d.byCountry  || [],
+      browser:  d.byBrowser  || [],
+      device:   d.byDevice   || [],
+      referrer: d.byReferrer || [],
+    };
+    renderBreakdown();
+
+    // Tables
+    renderTopUrls(d.topUrls || []);
+    renderRecent(d.recent   || []);
+
+    // Timestamp
+    document.getElementById('lastUpdated').textContent =
+      'Actualizado: ' + new Date().toLocaleTimeString('es-ES');
+
+  } catch (e) {
+    console.error(e);
+    const dbEl = document.getElementById('dbStatus');
+    dbEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-500 inline-block"></span>
+      <span class="text-red-500">Error</span>`;
+  } finally {
+    icon.style.opacity = '1';
+  }
+}
+
+// ── AUTO-REFRESH (30s) ──
+const REFRESH_INTERVAL = 30;
+let refreshLeft = REFRESH_INTERVAL;
+
+setInterval(() => {
+  refreshLeft--;
+  if (refreshLeft <= 0) {
+    refreshLeft = REFRESH_INTERVAL;
+    loadAll();
+  }
+  const pct = ((REFRESH_INTERVAL - refreshLeft) / REFRESH_INTERVAL * 100).toFixed(1) + '%';
+  document.getElementById('refreshRing').style.setProperty('--pct', pct);
+  document.getElementById('refreshSec').textContent = refreshLeft;
+}, 1000);
+
+// ── INIT ──
+loadAll();
+</script>
+</body>
+</html>
