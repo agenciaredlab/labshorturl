@@ -86,9 +86,54 @@
 
     @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
     .live-dot { animation: pulse-dot 2s infinite; }
+
+    /* PIN overlay */
+    .pin-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: var(--gradient);
+      display: flex; align-items: center; justify-content: center;
+      padding: 1rem;
+    }
+    .pin-box {
+      background: var(--bg-card);
+      border-radius: 1.5rem;
+      padding: 2.5rem 2rem;
+      width: 100%; max-width: 360px;
+      text-align: center;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.3);
+    }
   </style>
 </head>
 <body class="min-h-screen gradient-bg flex flex-col">
+
+<!-- PIN overlay (shown when SUPERADMIN_PASS is configured and session not unlocked) -->
+<div id="pinOverlay" class="pin-overlay hidden">
+  <div class="pin-box">
+    <div class="flex justify-center mb-4">
+      <div class="w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+    </div>
+    <h2 class="text-lg font-bold mb-1" style="color:var(--text-main)">Acceso Super Admin</h2>
+    <p class="text-sm mb-5" style="color:var(--text-soft)">Introduce el PIN exclusivo para continuar</p>
+    <form id="pinForm" onsubmit="submitPin(event)">
+      <input id="pinInput" type="password" placeholder="PIN de Super Admin"
+        autocomplete="current-password" autofocus
+        class="w-full border rounded-xl px-4 py-3 text-sm text-center tracking-widest mb-3 focus:outline-none focus:ring-2 focus:ring-purple-400"
+        style="background:var(--bg-input);color:var(--text-main);border-color:var(--border)"/>
+      <p id="pinError" class="text-red-500 text-xs mb-3 hidden">PIN incorrecto. Inténtalo de nuevo.</p>
+      <button type="submit"
+        class="w-full py-3 rounded-xl text-white text-sm font-semibold"
+        style="background:linear-gradient(135deg,#667eea,#764ba2)">
+        Desbloquear
+      </button>
+    </form>
+    <a href="/" class="block mt-4 text-xs" style="color:var(--text-xsoft)">← Volver al dashboard</a>
+  </div>
+</div>
 
 <!-- Header -->
 <header class="py-6 text-center text-white relative">
@@ -107,6 +152,13 @@
         <span id="refreshSec" class="text-white text-[9px] font-bold leading-none">30</span>
       </div>
     </div>
+    <button id="lockBtn" onclick="lockPanel()" title="Bloquear Super Admin"
+      class="hidden w-9 h-9 items-center justify-center rounded-xl bg-white/15 hover:bg-red-500/40 border border-white/20 transition text-white">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </button>
     <button onclick="loadAll()" title="Actualizar ahora"
       class="w-9 h-9 flex items-center justify-center rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 transition text-white">
       <svg id="reloadIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -568,6 +620,50 @@ function renderRecent(rows) {
   }).join('');
 }
 
+// ── PIN / LOCK ──
+function showPinOverlay() {
+  document.getElementById('pinOverlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('pinInput')?.focus(), 50);
+}
+
+function hidePinOverlay() {
+  document.getElementById('pinOverlay').classList.add('hidden');
+  document.getElementById('lockBtn').classList.remove('hidden');
+  document.getElementById('lockBtn').classList.add('flex');
+}
+
+async function submitPin(e) {
+  e.preventDefault();
+  const pin = document.getElementById('pinInput').value;
+  const errEl = document.getElementById('pinError');
+  errEl.classList.add('hidden');
+  try {
+    const res = await fetch('/api/superadmin/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    if (res.ok) {
+      document.getElementById('pinInput').value = '';
+      hidePinOverlay();
+      loadAll();
+    } else {
+      errEl.classList.remove('hidden');
+      document.getElementById('pinInput').select();
+    }
+  } catch {
+    errEl.textContent = 'Error de conexión.';
+    errEl.classList.remove('hidden');
+  }
+}
+
+async function lockPanel() {
+  await fetch('/api/superadmin/lock', { method: 'POST' });
+  document.getElementById('lockBtn').classList.add('hidden');
+  document.getElementById('lockBtn').classList.remove('flex');
+  showPinOverlay();
+}
+
 // ── LOAD DATA ──
 async function loadAll() {
   const icon = document.getElementById('reloadIcon');
@@ -575,8 +671,16 @@ async function loadAll() {
   try {
     const res = await fetch('/api/superadmin/stats');
     if (res.status === 401) { window.location.href = '/'; return; }
+    if (res.status === 403) {
+      const body = await res.json().catch(() => ({}));
+      if (body.locked) { showPinOverlay(); return; }
+      throw new Error('Forbidden');
+    }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
+
+    // If PIN overlay is visible, hide it (session already valid from previous unlock)
+    hidePinOverlay();
 
     // KPIs
     document.getElementById('kpiTotalUrls').textContent   = fmt(d.summary?.total_urls);

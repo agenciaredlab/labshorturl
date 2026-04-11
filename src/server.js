@@ -63,6 +63,9 @@ if (!process.env.ADMIN_PASS && !fs.existsSync('/run/secrets/ADMIN_PASS')) {
   console.warn('   Define ADMIN_PASS como env var o Docker secret en producción.');
 }
 
+// PIN exclusivo para el Super Admin (opcional pero recomendado)
+const SUPERADMIN_PASS = readSecret('SUPERADMIN_PASS', '');
+
 // ── SENTRY ──
 const SENTRY_DSN = readSecret('SENTRY_DSN', '');
 if (SENTRY_DSN) {
@@ -153,6 +156,14 @@ const redirectLimiter = rateLimit({
 function requireAdmin(req, res, next) {
   if (req.session?.admin) return next();
   res.status(401).json({ error: 'No autenticado', redirect: '/login' });
+}
+
+function requireSuperAdmin(req, res, next) {
+  if (!req.session?.admin) return res.status(401).json({ error: 'No autenticado', redirect: '/login' });
+  if (SUPERADMIN_PASS && !req.session?.superadmin) {
+    return res.status(403).json({ error: 'PIN de Super Admin requerido', locked: true });
+  }
+  next();
 }
 
 async function requireApiKey(req, res, next) {
@@ -504,7 +515,27 @@ app.get('/superadmin', requireAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'superadmin.html'));
 });
 
-app.get('/api/superadmin/stats', requireAdmin, async (req, res) => {
+// Unlock: valida el PIN de super admin y lo guarda en sesión
+app.post('/api/superadmin/unlock', requireAdmin, (req, res) => {
+  if (!SUPERADMIN_PASS) {
+    req.session.superadmin = true;
+    return res.json({ ok: true });
+  }
+  const { pin } = req.body;
+  if (!pin || pin !== SUPERADMIN_PASS) {
+    return res.status(403).json({ error: 'PIN incorrecto' });
+  }
+  req.session.superadmin = true;
+  res.json({ ok: true });
+});
+
+// Lock: cierra la sesión super admin sin cerrar la sesión admin normal
+app.post('/api/superadmin/lock', requireAdmin, (req, res) => {
+  req.session.superadmin = false;
+  res.json({ ok: true });
+});
+
+app.get('/api/superadmin/stats', requireSuperAdmin, async (req, res) => {
   const stats = await db.getGlobalAnalyticsFull();
   res.json({ ...stats, uptime: Math.floor(process.uptime()) });
 });
