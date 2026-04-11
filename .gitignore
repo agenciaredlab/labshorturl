@@ -4,3 +4,4 @@ urls.db
 *.db-wal
 .env
 logs/
+backups/
