@@ -1,4 +1,7 @@
 # Para desarrollo local: docker compose up -d
+# Para producción:       docker compose --env-file .env up -d
+#
+# Genera .env con:  node scripts/setup.js
 version: '3.8'
 
 services:
@@ -7,7 +10,7 @@ services:
     environment:
       POSTGRES_DB: labshorturl
       POSTGRES_USER: labshorturl
-      POSTGRES_PASSWORD: labshorturl
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-labshorturl}
     volumes:
       - pg_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -21,15 +24,16 @@ services:
     build: .
     image: labshorturl:latest
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:${PORT:-3000}"
     environment:
-      NODE_ENV: production
-      PORT: 3000
-      BASE_URL: http://localhost:3000
-      ADMIN_USER: admin
-      ADMIN_PASS: admin123              # Cambia en producción
-      SESSION_SECRET: dev-secret-local  # Cambia en producción
-      DATABASE_URL: postgresql://labshorturl:labshorturl@db:5432/labshorturl
+      NODE_ENV:       ${NODE_ENV:-production}
+      PORT:           ${PORT:-3000}
+      BASE_URL:       ${BASE_URL:-http://localhost:3000}
+      ADMIN_USER:     ${ADMIN_USER:-admin}
+      ADMIN_PASS:     ${ADMIN_PASS:-admin123}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-local}
+      DATABASE_URL:   ${DATABASE_URL:-postgresql://labshorturl:labshorturl@db:5432/labshorturl}
+      SENTRY_DSN:     ${SENTRY_DSN:-}
     volumes:
       - logs:/app/logs
     depends_on:
@@ -37,7 +41,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT:-3000}/health"]
       interval: 30s
       timeout: 5s
       retries: 3
