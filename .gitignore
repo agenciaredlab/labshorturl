@@ -3,5 +3,7 @@ urls.db
 *.db-shm
 *.db-wal
 .env
+.env.backup-*
+portainer.env
 logs/
 backups/
