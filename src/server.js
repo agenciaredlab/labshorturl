@@ -1,3 +1,4 @@
+const Sentry = require('@sentry/node');
 const express = require('express');
 const path = require('path');
 const { nanoid } = require('nanoid');
@@ -46,6 +47,7 @@ function logError(context, err) {
   if (process.env.NODE_ENV === 'production') {
     fs.appendFile(path.join(LOG_DIR, 'error.log'), line, () => {});
   }
+  if (SENTRY_DSN && err instanceof Error) Sentry.captureException(err, { tags: { context } });
 }
 
 // ── ADMIN CREDENTIALS ──
@@ -59,6 +61,17 @@ const ADMIN_PASS = readSecret('ADMIN_PASS', 'admin123');
 if (!process.env.ADMIN_PASS && !fs.existsSync('/run/secrets/ADMIN_PASS')) {
   console.warn('⚠️  ADVERTENCIA: Usando contraseña de admin por defecto.');
   console.warn('   Define ADMIN_PASS como env var o Docker secret en producción.');
+}
+
+// ── SENTRY ──
+const SENTRY_DSN = readSecret('SENTRY_DSN', '');
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1,
+  });
+  console.log('✓ Sentry inicializado');
 }
 
 app.use(express.json());
@@ -498,6 +511,8 @@ app.get('/:code', redirectLimiter, async (req, res) => {
 });
 
 // ── ERROR HANDLER ──
+if (SENTRY_DSN) Sentry.setupExpressErrorHandler(app);
+
 app.use((err, req, res, _next) => {
   logError(`${req.method} ${req.path}`, err);
   res.status(500).json({ error: 'Error interno del servidor' });
