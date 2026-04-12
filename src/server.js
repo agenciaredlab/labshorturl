@@ -165,7 +165,8 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'login.html'));
 });
 
-app.get('/dashboard', requireUser, (req, res) => {
+app.get('/dashboard', (req, res) => {
+  if (!req.session?.userId) return res.redirect('/login');
   res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
 });
 
@@ -731,7 +732,8 @@ app.get('/api/analytics', requireAdmin, async (req, res) => {
 });
 
 // ── SUPER ADMIN ──
-app.get('/superadmin', requireAdmin, (req, res) => {
+app.get('/superadmin', (req, res) => {
+  if (!req.session?.admin) return res.redirect('/login');
   res.sendFile(path.join(__dirname, '..', 'public', 'superadmin.html'));
 });
 
