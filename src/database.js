@@ -68,6 +68,12 @@ async function init() {
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   // Idempotent column migrations — ADD COLUMN IF NOT EXISTS (PostgreSQL 9.6+)
@@ -579,6 +585,21 @@ module.exports = {
     return pool.query(
       `UPDATE users SET mp_subscription_id = $1, plan_expires_at = $2 WHERE id = $3`,
       [mpSubId, expiresAt, userId]
+    );
+  },
+
+  // ── SETTINGS (key-value store) ──
+  async getSetting(key) {
+    const row = await queryOne(`SELECT value FROM settings WHERE key = $1`, [key]);
+    return row ? JSON.parse(row.value) : null;
+  },
+
+  async setSetting(key, value) {
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [key, JSON.stringify(value)]
     );
   },
 };

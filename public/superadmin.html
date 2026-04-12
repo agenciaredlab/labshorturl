@@ -371,6 +371,67 @@
     </div>
   </div>
 
+  <!-- ── PRECIOS ── -->
+  <div class="card rounded-2xl shadow-lg p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+        </svg>
+        Configurar precios del plan Pro
+      </h2>
+      <div class="flex gap-2">
+        <button onclick="resetPrices()" id="btnResetPrices"
+          class="text-xs px-3 py-1.5 rounded-lg border text-gray-500 hover:bg-gray-50 transition">
+          Restaurar por defecto
+        </button>
+        <button onclick="savePrices()" id="btnSavePrices"
+          class="text-xs px-3 py-1.5 rounded-lg text-white font-semibold transition"
+          style="background:linear-gradient(135deg,#667eea,#764ba2)">
+          Guardar cambios
+        </button>
+      </div>
+    </div>
+    <div id="pricesMsg" class="hidden text-xs px-3 py-2 rounded-lg mb-3"></div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- Stripe -->
+      <div>
+        <p class="text-xs font-bold text-indigo-600 mb-3 flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-indigo-500 inline-block"></span> Stripe (USD · EUR · GBP)
+        </p>
+        <p class="text-[10px] text-gray-400 mb-2">Ingresa el precio en la unidad principal (ej: 7 para $7 USD). Se convierte a centavos automáticamente.</p>
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-left text-gray-400 uppercase tracking-wide text-[10px]">
+              <th class="pb-1">Moneda</th>
+              <th class="pb-1 text-right">Mensual</th>
+              <th class="pb-1 text-right">Anual</th>
+            </tr>
+          </thead>
+          <tbody id="stripePriceRows"></tbody>
+        </table>
+      </div>
+      <!-- MercadoPago -->
+      <div>
+        <p class="text-xs font-bold text-sky-600 mb-3 flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-sky-500 inline-block"></span> MercadoPago (LATAM)
+        </p>
+        <p class="text-[10px] text-gray-400 mb-2">Ingresa el precio en moneda local (ej: 7000 para ARS $7.000).</p>
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-left text-gray-400 uppercase tracking-wide text-[10px]">
+              <th class="pb-1">País</th>
+              <th class="pb-1 text-right">Mensual</th>
+              <th class="pb-1 text-right">Anual</th>
+            </tr>
+          </thead>
+          <tbody id="mpPriceRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- ── RECENT ACTIVITY ── -->
   <div class="card rounded-2xl shadow-lg p-5">
     <h2 class="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
@@ -840,9 +901,122 @@ async function toggleActive(id, active, btn) {
   if (res.ok) loadUsers(); else btn.disabled = false;
 }
 
+// ── PRICES ──
+const STRIPE_CURRENCIES  = ['USD', 'EUR', 'GBP'];
+const MP_COUNTRIES_LIST  = ['AR','BR','CL','CO','MX','PE','UY'];
+const COUNTRY_NAMES      = { AR:'Argentina', BR:'Brasil', CL:'Chile', CO:'Colombia', MX:'México', PE:'Perú', UY:'Uruguay' };
+
+let currentPrices = null;
+
+async function loadPrices() {
+  const r = await fetch('/api/superadmin/prices');
+  if (!r.ok) return;
+  currentPrices = await r.json();
+  renderPriceRows();
+}
+
+function priceInput(id, value, step = '0.01') {
+  return `<input id="${id}" type="number" value="${value}" step="${step}" min="1"
+    class="w-20 text-right border rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1"
+    style="border-color:var(--border);background:var(--card);color:var(--text-main)"
+    onchange="markDirty()">`;
+}
+
+function renderPriceRows() {
+  if (!currentPrices) return;
+  // Stripe rows
+  document.getElementById('stripePriceRows').innerHTML = STRIPE_CURRENCIES.map(cur => {
+    const mo = currentPrices.stripe?.monthly?.[cur];
+    const yr = currentPrices.stripe?.yearly?.[cur];
+    const moVal = mo ? (mo.unit_amount / 100) : '';
+    const yrVal = yr ? (yr.unit_amount / 100) : '';
+    return `<tr class="border-t" style="border-color:var(--border)">
+      <td class="py-1.5 font-semibold" style="color:var(--text-main)">${cur}</td>
+      <td class="py-1.5 text-right">${mo ? priceInput(`sp_mo_${cur}`, moVal) : '<span class="text-gray-300">—</span>'}</td>
+      <td class="py-1.5 text-right">${yr ? priceInput(`sp_yr_${cur}`, yrVal) : '<span class="text-gray-300">—</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  // MercadoPago rows
+  document.getElementById('mpPriceRows').innerHTML = MP_COUNTRIES_LIST.map(cc => {
+    const mo = currentPrices.mercadopago?.monthly?.[cc];
+    const yr = currentPrices.mercadopago?.yearly?.[cc];
+    const cur = mo?.currency || yr?.currency || '';
+    return `<tr class="border-t" style="border-color:var(--border)">
+      <td class="py-1.5">
+        <span class="font-semibold" style="color:var(--text-main)">${COUNTRY_NAMES[cc]}</span>
+        <span class="text-gray-400 ml-1">${cur}</span>
+      </td>
+      <td class="py-1.5 text-right">${mo ? priceInput(`mp_mo_${cc}`, mo.amount, '1') : '<span class="text-gray-300">—</span>'}</td>
+      <td class="py-1.5 text-right">${yr ? priceInput(`mp_yr_${cc}`, yr.amount, '1') : '<span class="text-gray-300">—</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function markDirty() {
+  document.getElementById('btnSavePrices').textContent = '⬆ Guardar cambios';
+}
+
+function showPricesMsg(type, msg) {
+  const el = document.getElementById('pricesMsg');
+  el.className = `text-xs px-3 py-2 rounded-lg mb-3 ${type === 'ok' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+async function savePrices() {
+  const btn = document.getElementById('btnSavePrices');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+
+  const stripe = { monthly: {}, yearly: {} };
+  const mp     = { monthly: {}, yearly: {} };
+
+  for (const cur of STRIPE_CURRENCIES) {
+    const moEl = document.getElementById(`sp_mo_${cur}`);
+    const yrEl = document.getElementById(`sp_yr_${cur}`);
+    if (moEl) stripe.monthly[cur] = { unit_amount: Math.round(parseFloat(moEl.value) * 100) };
+    if (yrEl) stripe.yearly[cur]  = { unit_amount: Math.round(parseFloat(yrEl.value) * 100) };
+  }
+  for (const cc of MP_COUNTRIES_LIST) {
+    const moEl = document.getElementById(`mp_mo_${cc}`);
+    const yrEl = document.getElementById(`mp_yr_${cc}`);
+    if (moEl) mp.monthly[cc] = { amount: parseFloat(moEl.value) };
+    if (yrEl) mp.yearly[cc]  = { amount: parseFloat(yrEl.value) };
+  }
+
+  const r = await fetch('/api/superadmin/prices', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stripe, mercadopago: mp }),
+  });
+  const data = await r.json();
+  if (r.ok) {
+    currentPrices = data.pricing;
+    renderPriceRows();
+    showPricesMsg('ok', '✓ Precios guardados correctamente');
+  } else {
+    showPricesMsg('err', data.error || 'Error al guardar');
+  }
+  btn.disabled = false; btn.textContent = 'Guardar cambios';
+}
+
+async function resetPrices() {
+  if (!confirm('¿Restaurar todos los precios a los valores por defecto?')) return;
+  const r = await fetch('/api/superadmin/prices/reset', { method: 'POST' });
+  const data = await r.json();
+  if (r.ok) {
+    currentPrices = data.pricing;
+    renderPriceRows();
+    showPricesMsg('ok', '✓ Precios restaurados');
+  } else {
+    showPricesMsg('err', 'Error al restaurar');
+  }
+}
+
 // ── INIT ──
 loadAll();
 loadUsers();
+loadPrices();
 </script>
 </body>
 </html>

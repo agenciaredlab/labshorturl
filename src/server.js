@@ -990,6 +990,68 @@ app.patch('/api/superadmin/users/:id/active', requireSuperAdmin, async (req, res
   res.json({ ok: true });
 });
 
+// ── PRICE MANAGEMENT ──
+app.get('/api/superadmin/prices', requireSuperAdmin, (req, res) => {
+  res.json(pay.getPricing());
+});
+
+app.put('/api/superadmin/prices', requireSuperAdmin, async (req, res) => {
+  const { stripe, mercadopago } = req.body;
+  if (!stripe && !mercadopago)
+    return res.status(400).json({ error: 'Se requiere stripe o mercadopago en el body' });
+
+  const current = pay.getPricing();
+  const def     = pay.DEFAULT_PRICING;
+
+  // Merge + validate Stripe prices
+  if (stripe) {
+    for (const period of ['monthly', 'yearly']) {
+      if (!stripe[period]) continue;
+      for (const [currency, entry] of Object.entries(stripe[period])) {
+        if (!def.stripe[period]?.[currency]) continue; // unknown currency, skip
+        const ua = parseInt(entry.unit_amount);
+        if (!Number.isInteger(ua) || ua < 1) return res.status(400).json({ error: `Stripe ${currency} ${period}: unit_amount inválido` });
+        const base = def.stripe[period][currency];
+        current.stripe[period][currency] = {
+          ...base,
+          unit_amount: ua,
+          display: pay.buildDisplay(ua / 100, base.currency.toUpperCase()),
+        };
+      }
+    }
+  }
+
+  // Merge + validate MercadoPago prices
+  if (mercadopago) {
+    for (const period of ['monthly', 'yearly']) {
+      if (!mercadopago[period]) continue;
+      for (const [country, entry] of Object.entries(mercadopago[period])) {
+        if (!def.mercadopago[period]?.[country]) continue;
+        const amount = parseFloat(entry.amount);
+        if (isNaN(amount) || amount < 1) return res.status(400).json({ error: `MercadoPago ${country} ${period}: amount inválido` });
+        const base = def.mercadopago[period][country];
+        current.mercadopago[period][country] = {
+          ...base,
+          amount,
+          display: pay.buildDisplay(amount, base.currency),
+        };
+      }
+    }
+  }
+
+  await db.setSetting('pricing', current);
+  pay.invalidateCache();
+  await pay.loadPricing(db);
+  res.json({ ok: true, pricing: pay.getPricing() });
+});
+
+app.post('/api/superadmin/prices/reset', requireSuperAdmin, async (req, res) => {
+  await db.setSetting('pricing', pay.DEFAULT_PRICING);
+  pay.invalidateCache();
+  await pay.loadPricing(db);
+  res.json({ ok: true, pricing: pay.getPricing() });
+});
+
 // ── REDIRECT ──
 app.get('/:code', redirectLimiter, async (req, res) => {
   const entry = await db.findByCode(req.params.code);
@@ -1013,6 +1075,8 @@ app.use((err, req, res, _next) => {
 async function start() {
   await db.init();
   console.log('✓ Base de datos PostgreSQL lista');
+  await pay.loadPricing(db);
+  console.log('✓ Precios cargados');
 
   const server = app.listen(PORT, () => {
     console.log(`LabShortURL corriendo en ${BASE_URL}`);
