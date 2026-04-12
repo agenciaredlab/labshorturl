@@ -17,9 +17,11 @@
     "express-session": "^1.19.0",
     "geoip-lite": "^1.4.10",
     "helmet": "^8.1.0",
+    "mercadopago": "^2.12.0",
     "morgan": "^1.10.1",
     "nanoid": "^3.3.7",
     "pg": "^8.20.0",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "stripe": "^22.0.1"
   }
 }

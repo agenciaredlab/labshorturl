@@ -14,6 +14,7 @@ const morgan = require('morgan');
 const fs = require('fs');
 const db = require('./database');
 const { checkOne, checkStale, startBackgroundChecker } = require('./health');
+const pay = require('./payments');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -67,6 +68,29 @@ if (!process.env.ADMIN_PASS && !fs.existsSync('/run/secrets/ADMIN_PASS')) {
 // PIN exclusivo para el Super Admin (opcional pero recomendado)
 const SUPERADMIN_PASS = readSecret('SUPERADMIN_PASS', '');
 
+// ── PAYMENT PROVIDERS ──
+const STRIPE_SECRET_KEY     = readSecret('STRIPE_SECRET_KEY', '');
+const STRIPE_WEBHOOK_SECRET = readSecret('STRIPE_WEBHOOK_SECRET', '');
+const MP_ACCESS_TOKEN       = readSecret('MP_ACCESS_TOKEN', '');
+const MP_WEBHOOK_SECRET     = readSecret('MP_WEBHOOK_SECRET', '');
+
+let _stripe = null;
+function getStripe() {
+  if (!STRIPE_SECRET_KEY) return null;
+  if (!_stripe) _stripe = require('stripe')(STRIPE_SECRET_KEY);
+  return _stripe;
+}
+
+let _mpClient = null;
+function getMPClient() {
+  if (!MP_ACCESS_TOKEN) return null;
+  if (!_mpClient) {
+    const { MercadoPagoConfig } = require('mercadopago');
+    _mpClient = new MercadoPagoConfig({ accessToken: MP_ACCESS_TOKEN });
+  }
+  return _mpClient;
+}
+
 // ── PLAN DEFINITIONS ──
 const PLANS = {
   free: {
@@ -105,6 +129,45 @@ if (SENTRY_DSN) {
   });
   console.log('✓ Sentry inicializado');
 }
+
+// ── STRIPE WEBHOOK (must be before express.json() to receive raw body) ──
+app.post('/api/payments/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const stripe = getStripe();
+  if (!stripe) return res.status(503).json({ error: 'Stripe no configurado' });
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    logError('stripe webhook verify', err);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const s = event.data.object;
+      if (s.mode === 'subscription') {
+        const userId = parseInt(s.metadata?.user_id);
+        if (userId) await db.activateProPlan(userId, 'stripe', s.subscription, null);
+      }
+    } else if (event.type === 'customer.subscription.deleted' || event.type === 'customer.subscription.paused') {
+      const sub = event.data.object;
+      const userId = parseInt(sub.metadata?.user_id);
+      if (userId) await db.deactivateProPlan(userId);
+      else {
+        // Fallback: look up by subscription ID
+        const user = await db.findUserByStripeSubscription(sub.id);
+        if (user) await db.deactivateProPlan(user.id);
+      }
+    } else if (event.type === 'invoice.payment_failed') {
+      // Grace period: don't immediately downgrade on first failure
+      // Stripe will retry; 'customer.subscription.deleted' fires after all retries fail
+    }
+  } catch (err) {
+    logError('stripe webhook process', err);
+    return res.status(500).json({ error: 'Error procesando webhook' });
+  }
+  res.json({ received: true });
+});
 
 app.use(express.json());
 app.use(morganMiddleware);
@@ -309,15 +372,23 @@ app.post('/api/auth/logout', (req, res) => {
 
 app.get('/api/auth/me', async (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ authenticated: false });
-  const user = await db.findUserById(req.session.userId);
+  let user = await db.findUserById(req.session.userId);
   if (!user || !user.active) return res.status(401).json({ authenticated: false });
-  // Sync plan in case it was updated
+  // Auto-expire time-limited plans (MercadoPago one-time)
+  if (user.plan === 'pro' && user.plan_expires_at && new Date(user.plan_expires_at) < new Date()) {
+    await db.deactivateProPlan(user.id);
+    user = await db.findUserById(user.id);
+  }
   req.session.userPlan = user.plan;
   const plan = getPlan(user.plan);
   const urlCount = await db.countUserUrls(user.id);
   res.json({
     authenticated: true,
-    user: { id: user.id, email: user.email, name: user.name, plan: user.plan },
+    user: {
+      id: user.id, email: user.email, name: user.name, plan: user.plan,
+      plan_expires_at: user.plan_expires_at || null,
+      payment_provider: user.payment_provider || null,
+    },
     limits: { ...plan, urlCount, maxUrls: plan.maxUrls === Infinity ? null : plan.maxUrls },
   });
 });
@@ -333,6 +404,144 @@ app.post('/api/auth/change-password', requireUser, async (req, res) => {
   const password_hash = await bcrypt.hash(newPassword, 10);
   await db.updateUserPassword(user.id, password_hash);
   res.json({ ok: true });
+});
+
+// ── PAYMENTS ──
+
+// GET /api/payments/pricing — returns pricing for the user's detected country
+app.get('/api/payments/pricing', (req, res) => {
+  const country = pay.getCountryFromReq(req);
+  const stripeActive  = !!STRIPE_SECRET_KEY;
+  const mpActive      = !!MP_ACCESS_TOKEN;
+  res.json({
+    country,
+    stripe: stripeActive ? {
+      monthly: pay.getStripePrice(country, 'monthly'),
+      yearly:  pay.getStripePrice(country, 'yearly'),
+    } : null,
+    mercadopago: (mpActive && pay.getMPPrice(country, 'monthly')) ? {
+      monthly: pay.getMPPrice(country, 'monthly'),
+      yearly:  pay.getMPPrice(country, 'yearly'),
+    } : null,
+  });
+});
+
+// POST /api/payments/stripe/checkout — create Stripe Checkout session
+app.post('/api/payments/stripe/checkout', requireUser, async (req, res) => {
+  const stripe = getStripe();
+  if (!stripe) return res.status(503).json({ error: 'Stripe no configurado en este servidor.' });
+  const { period } = req.body;
+  if (!['monthly', 'yearly'].includes(period))
+    return res.status(400).json({ error: 'period debe ser monthly o yearly' });
+  const user    = await db.findUserById(req.session.userId);
+  const country = pay.getCountryFromReq(req);
+  const price   = pay.getStripePrice(country, period);
+
+  // Get or create Stripe customer
+  let customerId = user.stripe_customer_id;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: user.email,
+      name:  user.name  || undefined,
+      metadata: { user_id: String(user.id) },
+    });
+    customerId = customer.id;
+    await db.updateStripeCustomer(user.id, customerId);
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    customer: customerId,
+    mode: 'subscription',
+    line_items: [{
+      price_data: {
+        currency:   price.currency,
+        unit_amount: price.unit_amount,
+        recurring:  { interval: period === 'monthly' ? 'month' : 'year' },
+        product_data: {
+          name:        'LabShortURL Pro',
+          description: period === 'monthly' ? 'Plan Pro Mensual' : 'Plan Pro Anual',
+        },
+      },
+      quantity: 1,
+    }],
+    success_url: `${BASE_URL}/upgrade?success=1&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url:  `${BASE_URL}/upgrade?cancelled=1`,
+    metadata:          { user_id: String(user.id), period },
+    subscription_data: { metadata: { user_id: String(user.id), period } },
+    allow_promotion_codes: true,
+  });
+  res.json({ url: session.url });
+});
+
+// POST /api/payments/mercadopago/checkout — create MercadoPago Preference (one-time)
+app.post('/api/payments/mercadopago/checkout', requireUser, async (req, res) => {
+  const mpClient = getMPClient();
+  if (!mpClient) return res.status(503).json({ error: 'MercadoPago no configurado en este servidor.' });
+  const { period } = req.body;
+  if (!['monthly', 'yearly'].includes(period))
+    return res.status(400).json({ error: 'period debe ser monthly o yearly' });
+  const user    = await db.findUserById(req.session.userId);
+  const country = pay.getCountryFromReq(req);
+  const price   = pay.getMPPrice(country, period);
+  if (!price) return res.status(400).json({ error: 'MercadoPago no está disponible en tu región. Usa Stripe.' });
+
+  const { Preference } = require('mercadopago');
+  const preference = new Preference(mpClient);
+  const result = await preference.create({
+    body: {
+      items: [{
+        title:        `LabShortURL Pro — Plan ${period === 'monthly' ? 'Mensual' : 'Anual'}`,
+        quantity:     1,
+        unit_price:   price.amount,
+        currency_id:  price.currency,
+      }],
+      payer:              { email: user.email },
+      back_urls: {
+        success: `${BASE_URL}/upgrade?success=1&provider=mp`,
+        failure: `${BASE_URL}/upgrade?cancelled=1`,
+        pending: `${BASE_URL}/upgrade?pending=1`,
+      },
+      auto_return:        'approved',
+      external_reference: `user_${user.id}_${period}_${Date.now()}`,
+      notification_url:   `${BASE_URL}/api/payments/mercadopago/webhook`,
+      metadata:           { user_id: String(user.id), period },
+    },
+  });
+  res.json({ url: result.init_point });
+});
+
+// POST /api/payments/mercadopago/webhook — IPN from MercadoPago
+app.post('/api/payments/mercadopago/webhook', async (req, res) => {
+  const mpClient = getMPClient();
+  if (!mpClient) return res.status(503).end();
+  try {
+    const { type, data } = req.body;
+    if (type === 'payment' && data?.id) {
+      const { Payment } = require('mercadopago');
+      const paymentApi  = new Payment(mpClient);
+      const payment     = await paymentApi.get({ id: data.id });
+      if (payment.status === 'approved') {
+        const ref    = payment.external_reference || '';
+        // external_reference format: "user_{id}_{period}_{ts}"
+        const match  = ref.match(/^user_(\d+)_(monthly|yearly)_/);
+        if (match) {
+          const userId   = parseInt(match[1]);
+          const period   = match[2];
+          const expiresAt = pay.mpExpiresAt(period);
+          await db.activateProPlan(userId, 'mercadopago', String(data.id), expiresAt);
+        }
+      }
+    }
+  } catch (err) {
+    logError('mp webhook', err);
+  }
+  res.status(200).end();
+});
+
+// GET /upgrade — serve upgrade page
+app.get('/upgrade', (req, res) => {
+  if (!req.session?.userId) return res.redirect('/login');
+  res.sendFile(path.join(__dirname, '..', 'public', 'upgrade.html'));
 });
 
 // ── API KEY MANAGEMENT ──
@@ -808,6 +1017,8 @@ async function start() {
   const server = app.listen(PORT, () => {
     console.log(`LabShortURL corriendo en ${BASE_URL}`);
     startBackgroundChecker();
+    // Expire overdue MercadoPago one-time plans every hour
+    setInterval(() => db.expireOverduePlans().catch(err => logError('expireOverduePlans', err)), 60 * 60 * 1000);
   });
 
   function shutdown(signal) {

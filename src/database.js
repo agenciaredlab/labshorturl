@@ -87,6 +87,12 @@ async function init() {
     `ALTER TABLE urls ADD COLUMN IF NOT EXISTS health_code   INTEGER`,
     `ALTER TABLE urls ADD COLUMN IF NOT EXISTS last_checked  TIMESTAMPTZ`,
     `ALTER TABLE urls ADD COLUMN IF NOT EXISTS user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL`,
+    // Payment / subscription columns
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id      VARCHAR(255)`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id  VARCHAR(255)`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS mp_subscription_id      VARCHAR(255)`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_expires_at         TIMESTAMPTZ`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_provider        VARCHAR(50)`,
   ];
   for (const sql of migrations) {
     await pool.query(sql);
@@ -512,5 +518,67 @@ module.exports = {
 
   async updateUserPassword(id, password_hash) {
     return pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [password_hash, id]);
+  },
+
+  // ── PAYMENTS ──
+
+  async updateStripeCustomer(userId, stripeCustomerId) {
+    return pool.query(
+      `UPDATE users SET stripe_customer_id = $1 WHERE id = $2`,
+      [stripeCustomerId, userId]
+    );
+  },
+
+  async activateProPlan(userId, provider, subscriptionId, expiresAt = null) {
+    return pool.query(
+      `UPDATE users
+          SET plan = 'pro',
+              payment_provider       = $1,
+              stripe_subscription_id = CASE WHEN $1 = 'stripe' THEN $2 ELSE stripe_subscription_id END,
+              mp_subscription_id     = CASE WHEN $1 = 'mercadopago' THEN $2 ELSE mp_subscription_id END,
+              plan_expires_at        = $3
+        WHERE id = $4`,
+      [provider, subscriptionId, expiresAt, userId]
+    );
+  },
+
+  async deactivateProPlan(userId) {
+    return pool.query(
+      `UPDATE users
+          SET plan = 'free',
+              stripe_subscription_id = NULL,
+              mp_subscription_id     = NULL,
+              plan_expires_at        = NULL,
+              payment_provider       = NULL
+        WHERE id = $1`,
+      [userId]
+    );
+  },
+
+  async expireOverduePlans() {
+    // Downgrade users whose time-limited plan has expired
+    return pool.query(
+      `UPDATE users SET plan = 'free', plan_expires_at = NULL, payment_provider = NULL
+        WHERE plan = 'pro' AND plan_expires_at IS NOT NULL AND plan_expires_at < NOW()`
+    );
+  },
+
+  async findUserByStripeCustomer(stripeCustomerId) {
+    return queryOne(`SELECT * FROM users WHERE stripe_customer_id = $1 LIMIT 1`, [stripeCustomerId]);
+  },
+
+  async findUserByStripeSubscription(subscriptionId) {
+    return queryOne(`SELECT * FROM users WHERE stripe_subscription_id = $1 LIMIT 1`, [subscriptionId]);
+  },
+
+  async findUserByMPSubscription(mpSubId) {
+    return queryOne(`SELECT * FROM users WHERE mp_subscription_id = $1 LIMIT 1`, [mpSubId]);
+  },
+
+  async updateMPSubscription(userId, mpSubId, expiresAt) {
+    return pool.query(
+      `UPDATE users SET mp_subscription_id = $1, plan_expires_at = $2 WHERE id = $3`,
+      [mpSubId, expiresAt, userId]
+    );
   },
 };

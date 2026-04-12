@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Upgrade a Pro — LabShortURL</title>
+  <script>if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark');</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+
+    :root {
+      --bg: #f8f7ff; --card: #ffffff; --text: #1a1530; --soft: #6b7280;
+      --border: #e5e7eb; --accent: #667eea; --accent2: #764ba2;
+    }
+    .dark {
+      --bg: #0f0d1a; --card: #1a1730; --text: #f1f0fb; --soft: #9ca3af;
+      --border: #2d2a42; --accent: #a78bfa; --accent2: #9061f9;
+    }
+    body { background: var(--bg); color: var(--text); }
+
+    .gradient-text {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .dark .gradient-text {
+      background: linear-gradient(135deg, #a78bfa, #9061f9);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+
+    .btn-stripe {
+      background: linear-gradient(135deg, #635bff, #4f46e5);
+      color: white; transition: opacity .2s, transform .1s;
+    }
+    .btn-stripe:hover:not(:disabled) { opacity: .9; transform: translateY(-1px); }
+
+    .btn-mp {
+      background: linear-gradient(135deg, #009ee3, #0075c0);
+      color: white; transition: opacity .2s, transform .1s;
+    }
+    .btn-mp:hover:not(:disabled) { opacity: .9; transform: translateY(-1px); }
+
+    .plan-card {
+      background: var(--card); border: 2px solid var(--border);
+      border-radius: 1.25rem; transition: border-color .2s;
+    }
+    .plan-card.selected {
+      border-color: #667eea;
+      box-shadow: 0 0 0 4px rgba(102,126,234,.12);
+    }
+    .dark .plan-card.selected { border-color: #a78bfa; box-shadow: 0 0 0 4px rgba(167,139,250,.12); }
+
+    .check { color: #10b981; }
+    .badge-save {
+      background: linear-gradient(135deg,#10b981,#059669);
+      color: white; font-size: .65rem; font-weight: 700;
+      padding: .2rem .5rem; border-radius: 999px;
+    }
+    .toggle-btn {
+      padding: .5rem 1.25rem; border-radius: 999px; font-size: .85rem;
+      font-weight: 600; transition: background .15s, color .15s;
+      cursor: pointer;
+    }
+    .toggle-btn.active {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+    }
+    .toggle-btn.inactive { color: var(--soft); }
+    .dark .toggle-btn.inactive { color: #6b7280; }
+
+    .spinner {
+      display: inline-block; width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,.4);
+      border-top-color: white; border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .feature-row { display: flex; align-items: center; gap: .5rem; padding: .35rem 0; font-size: .875rem; }
+    .feature-row svg { flex-shrink: 0; }
+
+    /* success / pending banners */
+    .banner-success { background: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; }
+    .banner-pending { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; }
+    .banner-cancel  { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; }
+    .dark .banner-success { background: #064e3b; border-color: #065f46; color: #6ee7b7; }
+    .dark .banner-pending { background: #451a03; border-color: #92400e; color: #fcd34d; }
+    .dark .banner-cancel  { background: #450a0a; border-color: #991b1b; color: #fca5a5; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Header -->
+  <header class="border-b" style="border-color:var(--border);background:var(--card)">
+    <div class="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
+      <a href="/dashboard" class="flex items-center gap-2 text-sm font-medium" style="color:var(--soft)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+        Volver al dashboard
+      </a>
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#667eea,#764ba2)">
+          <svg width="14" height="14" viewBox="0 0 36 36" fill="none">
+            <path d="M14 18h8M20 14l4 4-4 4M16 14l-4 4 4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="font-bold text-sm">LabShortURL</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-10">
+
+    <!-- Banner (success / pending / cancelled) -->
+    <div id="banner" class="hidden rounded-xl px-5 py-4 mb-8 text-sm font-medium"></div>
+
+    <!-- Title -->
+    <div class="text-center mb-10">
+      <h1 class="text-3xl font-extrabold mb-2">
+        Pasa a <span class="gradient-text">Pro</span>
+      </h1>
+      <p class="text-base" style="color:var(--soft)">Sin límites. Todas las funciones. Cancela cuando quieras.</p>
+    </div>
+
+    <!-- Period toggle -->
+    <div class="flex justify-center mb-8">
+      <div class="flex gap-1 p-1 rounded-full" style="background:var(--border)">
+        <button id="btnMonthly" onclick="setPeriod('monthly')" class="toggle-btn active">Mensual</button>
+        <button id="btnYearly"  onclick="setPeriod('yearly')"  class="toggle-btn inactive">
+          Anual <span class="badge-save ml-1">-30%</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Feature list + pricing card -->
+    <div class="plan-card selected p-8 mb-8">
+      <div class="flex flex-col md:flex-row gap-8">
+
+        <!-- Features -->
+        <div class="flex-1">
+          <p class="text-xs font-bold uppercase tracking-widest mb-4" style="color:var(--accent)">Incluye todo:</p>
+          <div class="feature-row"><svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>URLs ilimitadas</div>
+          <div class="feature-row"><svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Alias personalizados</div>
+          <div class="feature-row"><svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Contraseña en enlaces</div>
+          <div class="feature-row"><svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Fecha de expiración</div>
+          <div class="feature-row"><svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Parámetros UTM</div>
+          <div class="feature-row"><svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Códigos QR</div>
+          <div class="feature-row"><svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Analytics detallados</div>
+          <div class="feature-row"><svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Exportar CSV</div>
+        </div>
+
+        <!-- Pricing + buttons -->
+        <div class="md:w-56 flex flex-col justify-center gap-4">
+          <!-- Stripe price -->
+          <div id="stripeBox" class="hidden">
+            <p class="text-xs font-semibold mb-1" style="color:var(--soft)">Con tarjeta internacional</p>
+            <p class="text-2xl font-extrabold mb-1" id="stripePrice">—</p>
+            <p id="stripeSave" class="text-xs text-emerald-600 font-semibold mb-3 hidden"></p>
+            <button id="btnStripe" onclick="checkout('stripe')"
+              class="btn-stripe w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm.63 16.5H9.5v-5.25H7.75V9h1.75V7.87c0-1.74 1.05-2.62 2.6-2.62.74 0 1.52.06 2.27.17v2.18H13.1c-.8 0-.97.38-.97.94V9h2.6l-.34 2.25H12.1V16.5z"/></svg>
+              Pagar con Stripe
+            </button>
+            <p class="text-xs mt-2 text-center" style="color:var(--soft)">Visa, Mastercard, AMEX</p>
+          </div>
+
+          <!-- MercadoPago price -->
+          <div id="mpBox" class="hidden">
+            <p class="text-xs font-semibold mb-1" style="color:var(--soft)">Con MercadoPago</p>
+            <p class="text-2xl font-extrabold mb-1" id="mpPrice">—</p>
+            <p id="mpSave" class="text-xs text-emerald-600 font-semibold mb-3 hidden"></p>
+            <button id="btnMP" onclick="checkout('mercadopago')"
+              class="btn-mp w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+              <svg width="18" height="18" viewBox="0 0 40 40" fill="none">
+                <circle cx="20" cy="20" r="20" fill="white"/>
+                <path d="M8 20c0-6.627 5.373-12 12-12s12 5.373 12 12" stroke="#009ee3" stroke-width="3" stroke-linecap="round"/>
+                <path d="M14 20h12M17 16l3 4-3 4M23 16l3 4-3 4" stroke="#009ee3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Pagar con MercadoPago
+            </button>
+            <p class="text-xs mt-2 text-center" style="color:var(--soft)">Pago local · renovación manual</p>
+          </div>
+
+          <!-- No provider configured -->
+          <div id="noProviderBox" class="hidden text-center py-4">
+            <p class="text-sm" style="color:var(--soft)">Pagos no configurados.</p>
+            <p class="text-xs mt-1" style="color:var(--soft)">Contacta al administrador.</p>
+          </div>
+
+          <!-- Loading -->
+          <div id="loadingPrices" class="text-center py-4">
+            <div class="w-6 h-6 border-2 rounded-full animate-spin mx-auto" style="border-color:var(--border);border-top-color:var(--accent)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Already Pro notice -->
+    <div id="alreadyPro" class="hidden text-center py-6">
+      <p class="text-lg font-bold text-emerald-600 mb-1">¡Ya tienes el plan Pro!</p>
+      <p id="proExpiry" class="text-sm hidden" style="color:var(--soft)"></p>
+      <a href="/dashboard" class="inline-block mt-4 px-6 py-2.5 rounded-xl font-bold text-sm text-white" style="background:linear-gradient(135deg,#667eea,#764ba2)">Ir al dashboard</a>
+    </div>
+
+    <!-- Footer note -->
+    <p class="text-xs text-center mt-8" style="color:var(--soft)">
+      Stripe: suscripción automática — cancela desde tu portal de cliente.<br>
+      MercadoPago: pago único con duración según el plan — renueva cuando quieras.
+    </p>
+  </main>
+
+  <script>
+  let period = 'monthly';
+  let pricingData = null;
+  let currentUser = null;
+
+  const params = new URLSearchParams(location.search);
+
+  // ── BANNER ──
+  function showBanner(type, msg) {
+    const el = document.getElementById('banner');
+    el.className = `rounded-xl px-5 py-4 mb-8 text-sm font-medium banner-${type}`;
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+
+  if (params.get('success')) {
+    const provider = params.get('provider') === 'mp' ? 'MercadoPago' : 'Stripe';
+    showBanner('success', `¡Pago exitoso vía ${provider}! Tu plan Pro estará activo en unos segundos.`);
+  } else if (params.get('pending')) {
+    showBanner('pending', 'Tu pago está pendiente de confirmación. Te notificaremos cuando se acredite.');
+  } else if (params.get('cancelled')) {
+    showBanner('cancel', 'Pago cancelado. Puedes intentarlo de nuevo cuando quieras.');
+  }
+
+  // ── AUTH ──
+  async function init() {
+    const r = await fetch('/api/auth/me');
+    if (!r.ok) { window.location.href = '/login'; return; }
+    const data = await r.json();
+    currentUser = data.user;
+
+    if (currentUser.plan === 'pro') {
+      document.getElementById('alreadyPro').classList.remove('hidden');
+      document.querySelector('main > .flex.justify-center').classList.add('hidden');
+      document.querySelector('.plan-card').classList.add('hidden');
+      if (currentUser.plan_expires_at) {
+        const exp = new Date(currentUser.plan_expires_at);
+        const el = document.getElementById('proExpiry');
+        el.textContent = `Tu plan vence el ${exp.toLocaleDateString('es', {day:'2-digit',month:'long',year:'numeric'})}. Renueva antes de esa fecha para no perderlo.`;
+        el.classList.remove('hidden');
+      }
+    }
+
+    await loadPricing();
+  }
+
+  // ── PRICING ──
+  async function loadPricing() {
+    try {
+      const r = await fetch('/api/payments/pricing');
+      pricingData = await r.json();
+    } catch {
+      pricingData = null;
+    }
+    document.getElementById('loadingPrices').classList.add('hidden');
+    renderPrices();
+  }
+
+  function setPeriod(p) {
+    period = p;
+    document.getElementById('btnMonthly').className = 'toggle-btn ' + (p === 'monthly' ? 'active' : 'inactive');
+    document.getElementById('btnYearly').className  = 'toggle-btn ' + (p === 'yearly'  ? 'active' : 'inactive');
+    renderPrices();
+  }
+
+  function renderPrices() {
+    if (!pricingData) {
+      document.getElementById('noProviderBox').classList.remove('hidden');
+      return;
+    }
+
+    const stripe = pricingData.stripe?.[period];
+    const mp     = pricingData.mercadopago?.[period];
+    let hasAny   = false;
+
+    if (stripe) {
+      hasAny = true;
+      document.getElementById('stripeBox').classList.remove('hidden');
+      document.getElementById('stripePrice').textContent = `${stripe.display} / ${stripe.period}`;
+      const saveEl = document.getElementById('stripeSave');
+      if (stripe.saving) { saveEl.textContent = `Ahorras ${stripe.saving} vs mensual`; saveEl.classList.remove('hidden'); }
+      else saveEl.classList.add('hidden');
+    } else {
+      document.getElementById('stripeBox').classList.add('hidden');
+    }
+
+    if (mp) {
+      hasAny = true;
+      document.getElementById('mpBox').classList.remove('hidden');
+      document.getElementById('mpPrice').textContent = `${mp.display} / ${mp.period}`;
+      const saveEl = document.getElementById('mpSave');
+      if (mp.saving) { saveEl.textContent = `Ahorras ${mp.saving} vs mensual`; saveEl.classList.remove('hidden'); }
+      else saveEl.classList.add('hidden');
+    } else {
+      document.getElementById('mpBox').classList.add('hidden');
+    }
+
+    if (!hasAny) {
+      document.getElementById('noProviderBox').classList.remove('hidden');
+    }
+  }
+
+  // ── CHECKOUT ──
+  async function checkout(provider) {
+    const btnId = provider === 'stripe' ? 'btnStripe' : 'btnMP';
+    const btn = document.getElementById(btnId);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Redirigiendo…';
+    try {
+      const endpoint = provider === 'stripe'
+        ? '/api/payments/stripe/checkout'
+        : '/api/payments/mercadopago/checkout';
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Error al crear sesión de pago');
+      window.location.href = data.url;
+    } catch (err) {
+      showBanner('cancel', err.message || 'Error al procesar el pago. Intenta de nuevo.');
+      btn.disabled = false;
+      btn.innerHTML = provider === 'stripe' ? 'Pagar con Stripe' : 'Pagar con MercadoPago';
+    }
+  }
+
+  init();
+  </script>
+</body>
+</html>

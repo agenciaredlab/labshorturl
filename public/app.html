@@ -186,6 +186,7 @@
         <span>✓ Analíticas completas</span><span>✓ Exportar CSV</span>
       </div>
     </div>
+    <a href="/upgrade" class="block w-full py-2.5 rounded-xl text-sm font-bold text-white text-center mb-2" style="background:linear-gradient(135deg,#667eea,#764ba2)">Ver planes y precios</a>
     <button onclick="document.getElementById('upgradeModal').classList.add('hidden')"
       class="w-full py-2.5 rounded-xl text-sm border transition hover:bg-gray-50" style="border-color:var(--border);color:var(--text-soft)">Cerrar</button>
   </div>
@@ -491,6 +492,7 @@
         <div>
           <p id="planName" class="text-lg font-bold" style="color:var(--text-main)">—</p>
           <p id="planDesc" class="text-xs mt-0.5" style="color:var(--text-soft)"></p>
+          <p id="planExpiry" class="text-xs mt-0.5 text-amber-600 hidden"></p>
         </div>
         <span id="planBadgeCard" class="px-3 py-1 rounded-full text-xs font-bold"></span>
       </div>
@@ -534,7 +536,7 @@
     <div id="upgradeCta" class="hidden mt-5 p-4 rounded-xl text-center" style="background:linear-gradient(135deg,#f59e0b15,#d9770608);border:1px solid #f59e0b33">
       <p class="text-sm font-semibold text-amber-700 mb-1">¿Quieres más funciones?</p>
       <p class="text-xs text-amber-600 mb-3">Contacta al administrador para actualizar tu cuenta a Pro.</p>
-      <button onclick="showUpgrade('general')" class="px-5 py-2 rounded-xl text-sm font-bold text-white" style="background:linear-gradient(135deg,#f59e0b,#d97706)">Ver plan Pro</button>
+      <a href="/upgrade" class="px-5 py-2 rounded-xl text-sm font-bold text-white" style="background:linear-gradient(135deg,#f59e0b,#d97706)">Ver planes y precios</a>
     </div>
   </div>
 
@@ -961,6 +963,15 @@ function renderAccount() {
   bc.textContent = plan === 'pro' ? '⭐ Pro' : 'Gratis';
   bc.className = 'px-3 py-1 rounded-full text-xs font-bold ' + (plan==='pro'?'badge-pro':'badge-free');
   document.getElementById('upgradeCta').classList.toggle('hidden', plan === 'pro');
+  const expiryEl = document.getElementById('planExpiry');
+  if (isPro && currentUser.plan_expires_at) {
+    const exp = new Date(currentUser.plan_expires_at);
+    const daysLeft = Math.ceil((exp - Date.now()) / 86400000);
+    expiryEl.textContent = `Vence ${exp.toLocaleDateString('es', {day:'2-digit',month:'long',year:'numeric'})} (${daysLeft} días)`;
+    expiryEl.classList.remove('hidden');
+  } else {
+    expiryEl.classList.add('hidden');
+  }
 
   const yes = '<span class="text-emerald-600">✓ Sí</span>';
   const no  = '<span class="text-red-400">✗ No</span>';
