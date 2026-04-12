@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LabShortURL</title>
+  <script>if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark');</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    * { font-family: 'Inter', sans-serif; }
+
+    :root {
+      --bg-card:    rgba(255,255,255,0.97);
+      --bg-modal:   #ffffff;
+      --bg-input:   #ffffff;
+      --bg-muted:   #f9fafb;
+      --border:     #e5e7eb;
+      --text-main:  #1f2937;
+      --text-soft:  #6b7280;
+      --text-xsoft: #9ca3af;
+      --gradient:   linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .dark {
+      --bg-card:    rgba(30, 27, 46, 0.97);
+      --bg-modal:   #1e1b2e;
+      --bg-input:   #2a2640;
+      --bg-muted:   #252238;
+      --border:     #3d3a55;
+      --text-main:  #f0eeff;
+      --text-soft:  #a89ec8;
+      --text-xsoft: #6e6890;
+      --gradient:   linear-gradient(135deg, #4a3fa0 0%, #5a3080 100%);
+    }
+
+    .gradient-bg { background: var(--gradient); transition: background 0.3s; }
+    .card {
+      backdrop-filter: blur(16px);
+      background: var(--bg-card);
+      color: var(--text-main);
+      transition: background 0.3s, color 0.3s;
+    }
+
+    input, select, textarea {
+      background: var(--bg-input) !important;
+      color: var(--text-main) !important;
+      border-color: var(--border) !important;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    input::placeholder { color: var(--text-xsoft) !important; }
+
+    .dark .text-gray-700 { color: var(--text-soft) !important; }
+    .dark .text-gray-800, .dark .text-gray-900 { color: var(--text-main) !important; }
+    .dark .text-gray-500, .dark .text-gray-400 { color: var(--text-soft) !important; }
+    .dark .text-gray-300 { color: var(--text-xsoft) !important; }
+    .dark .border-gray-200, .dark .border-gray-100 { border-color: var(--border) !important; }
+    .dark .bg-gray-50, .dark .bg-white { background: var(--bg-muted) !important; }
+    .dark .bg-purple-50 { background: #1e1a38 !important; border-color: #3d3365 !important; }
+    .dark .bg-red-50    { background: #2d1a1a !important; border-color: #5a2a2a !important; }
+    .dark .bg-green-50  { background: #1a2d1a !important; border-color: #2a5a2a !important; }
+    .dark .bg-amber-50  { background: #2d2510 !important; }
+    .dark .hover\:bg-gray-50:hover { background: var(--bg-muted) !important; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+
+    /* Tabs */
+    .tab-btn { transition: all 0.2s; border-bottom: 2px solid transparent; }
+    .tab-btn.active { border-bottom-color: white; color: white; font-weight: 600; }
+    .tab-btn:not(.active) { color: rgba(255,255,255,0.6); }
+    .tab-btn:not(.active):hover { color: rgba(255,255,255,0.85); }
+
+    /* Plan badges */
+    .badge-free { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.25); }
+    .badge-pro  { background: linear-gradient(135deg,#f59e0b,#d97706); color: white; }
+
+    /* PRO lock overlay */
+    .pro-lock {
+      position: relative;
+    }
+    .pro-lock .lock-overlay {
+      position: absolute; inset: 0;
+      background: transparent;
+      cursor: pointer;
+      z-index: 5;
+      border-radius: inherit;
+    }
+    .pro-lock .lock-overlay:hover { background: rgba(102,126,234,0.04); }
+    .pro-lock input,
+    .pro-lock select,
+    .pro-lock textarea,
+    .pro-lock .inner { opacity: 0.45; pointer-events: none; user-select: none; }
+    .pro-badge {
+      position: absolute; top: 50%; right: 10px;
+      transform: translateY(-50%);
+      background: linear-gradient(135deg,#f59e0b,#d97706);
+      color: white; font-size: 9px; font-weight: 700;
+      padding: 2px 6px; border-radius: 4px;
+      letter-spacing: 0.05em; z-index: 6; pointer-events: none;
+    }
+    .pro-section-lock {
+      position: relative; overflow: hidden;
+    }
+    .pro-section-lock .section-overlay {
+      position: absolute; inset: 0; z-index: 10;
+      background: rgba(102,126,234,0.04);
+      backdrop-filter: blur(1px);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: inherit;
+    }
+    .pro-section-lock .section-overlay:hover { background: rgba(102,126,234,0.08); }
+
+    /* Cards */
+    .url-card { animation: slideIn 0.2s ease-out; }
+    @keyframes slideIn {
+      from { opacity:0; transform:translateY(-6px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+
+    .copy-btn { transition: all 0.2s; }
+    .copy-btn.copied { background: #10b981; color: white; border-color: #10b981; }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    .modal-box {
+      background: var(--bg-modal);
+      color: var(--text-main);
+      border-radius: 1.25rem;
+      width: 100%; max-width: 640px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 1.5rem;
+    }
+
+    /* Charts */
+    .chart-wrap canvas { max-height: 200px; }
+
+    /* Stats bars */
+    .stat-bar { height: 8px; border-radius: 9999px; background: linear-gradient(90deg,#667eea,#764ba2); }
+
+    /* Filter buttons */
+    .filter-btn { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.2); }
+    .filter-btn:hover { background: rgba(255,255,255,0.25); color: white; }
+    .filter-btn.active { background: white !important; color: #667eea !important; border-color: white !important; font-weight: 600; }
+
+    .kpi-card { background: linear-gradient(135deg,#667eea22,#764ba211); border: 1px solid #667eea33; }
+    .dark .kpi-card { background: linear-gradient(135deg,#667eea15,#764ba20a); border-color: #667eea25; }
+
+    /* Blur locked section content */
+    .blurred { filter: blur(4px); pointer-events: none; user-select: none; }
+
+    /* Toggle switch */
+    input[type="checkbox"].sr-only + div { background: #e5e7eb; }
+  </style>
+</head>
+<body class="min-h-screen gradient-bg flex flex-col">
+
+<!-- UPGRADE MODAL -->
+<div id="upgradeModal" class="modal-overlay hidden">
+  <div class="modal-box text-center max-w-sm">
+    <div class="flex justify-center mb-4">
+      <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background:linear-gradient(135deg,#f59e0b,#d97706)">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      </div>
+    </div>
+    <h2 class="text-lg font-bold mb-1" style="color:var(--text-main)">Función exclusiva Pro</h2>
+    <p id="upgradeDesc" class="text-sm mb-4" style="color:var(--text-soft)">Actualiza tu plan para acceder.</p>
+    <div class="bg-purple-50 rounded-xl p-4 mb-5 text-left">
+      <p class="text-xs font-semibold text-purple-700 mb-2">Plan Pro incluye:</p>
+      <div class="grid grid-cols-2 gap-1 text-xs text-purple-600">
+        <span>✓ URLs ilimitadas</span><span>✓ Alias personalizado</span>
+        <span>✓ Protección contraseña</span><span>✓ Fecha de expiración</span>
+        <span>✓ Parámetros UTM</span><span>✓ Códigos QR</span>
+        <span>✓ Analíticas completas</span><span>✓ Exportar CSV</span>
+      </div>
+    </div>
+    <button onclick="document.getElementById('upgradeModal').classList.add('hidden')"
+      class="w-full py-2.5 rounded-xl text-sm border transition hover:bg-gray-50" style="border-color:var(--border);color:var(--text-soft)">Cerrar</button>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div id="editModal" class="modal-overlay hidden">
+  <div class="modal-box max-w-lg">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-bold text-base" style="color:var(--text-main)">Editar enlace</h3>
+      <button onclick="closeEdit()" class="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition" style="color:var(--text-soft)">✕</button>
+    </div>
+    <div class="space-y-3">
+      <div><label class="block text-xs font-medium text-gray-600 mb-1">URL de destino</label>
+        <input id="editUrl" type="url" class="w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"/></div>
+      <div id="editAliasRow"><label class="block text-xs font-medium text-gray-600 mb-1">Alias personalizado</label>
+        <input id="editAlias" type="text" placeholder="Sin alias" class="w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"/></div>
+      <div id="editExpiresRow"><label class="block text-xs font-medium text-gray-600 mb-1">Expira el</label>
+        <input id="editExpires" type="datetime-local" class="w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"/></div>
+      <div id="editErr" class="hidden text-red-500 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
+      <div class="flex gap-2 pt-1">
+        <button onclick="closeEdit()" class="flex-1 py-2.5 rounded-xl text-sm border hover:bg-gray-50 transition" style="border-color:var(--border);color:var(--text-soft)">Cancelar</button>
+        <button onclick="saveEdit()" class="btn-primary flex-1 py-2.5 rounded-xl text-sm text-white font-medium">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- QR MODAL -->
+<div id="qrModal" class="modal-overlay hidden">
+  <div class="modal-box text-center max-w-xs">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-bold" style="color:var(--text-main)">Código QR</h3>
+      <button onclick="closeQR()" class="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition" style="color:var(--text-soft)">✕</button>
+    </div>
+    <div id="qrImgWrap" class="flex justify-center mb-3"><div class="w-44 h-44 bg-gray-100 rounded-xl animate-pulse"></div></div>
+    <p id="qrLabel" class="text-xs mb-3" style="color:var(--text-soft)"></p>
+    <div class="flex gap-2 justify-center mb-4">
+      <button onclick="setQRSize(150)" class="qr-size-btn px-3 py-1 text-xs border rounded-lg" style="border-color:var(--border)">S</button>
+      <button onclick="setQRSize(300)" class="qr-size-btn active px-3 py-1 text-xs border rounded-lg" style="border-color:var(--border);background:#667eea;color:white">M</button>
+      <button onclick="setQRSize(600)" class="qr-size-btn px-3 py-1 text-xs border rounded-lg" style="border-color:var(--border)">L</button>
+    </div>
+    <a id="qrDownload" href="#" download="qr.png" class="btn-primary block w-full py-2.5 rounded-xl text-sm font-medium text-white text-center">Descargar PNG</a>
+  </div>
+</div>
+
+<!-- ANALYTICS MODAL -->
+<div id="analyticsModal" class="modal-overlay hidden">
+  <div class="modal-box max-w-xl">
+    <div class="flex items-start justify-between mb-4">
+      <div class="flex-1 min-w-0 pr-3">
+        <a id="aModal-short" href="#" target="_blank" class="text-purple-600 font-bold hover:underline text-sm"></a>
+        <p id="aModal-original" class="text-xs truncate mt-0.5" style="color:var(--text-soft)"></p>
+      </div>
+      <button onclick="closeAnalytics()" class="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 transition flex-shrink-0" style="color:var(--text-soft)">✕</button>
+    </div>
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      <div class="kpi-card rounded-xl p-3 text-center">
+        <p class="text-xs text-purple-500 font-medium mb-1">Clics totales</p>
+        <p id="aModal-clicks" class="text-2xl font-bold" style="color:var(--text-main)">—</p>
+      </div>
+      <div class="kpi-card rounded-xl p-3 text-center">
+        <p class="text-xs text-purple-500 font-medium mb-1">Creado</p>
+        <p id="aModal-created" class="text-sm font-semibold" style="color:var(--text-main)">—</p>
+      </div>
+    </div>
+    <div class="chart-wrap mb-4">
+      <p class="text-xs font-medium text-gray-500 mb-2">Clics por día (30 días)</p>
+      <canvas id="aModalChart"></canvas>
+    </div>
+    <!-- Free: locked breakdown -->
+    <div id="aModal-proLock" class="pro-section-lock rounded-xl hidden">
+      <div class="section-overlay rounded-xl" onclick="showUpgrade('analyticsDetail')">
+        <span class="px-3 py-1.5 rounded-lg text-xs font-bold text-white" style="background:linear-gradient(135deg,#f59e0b,#d97706)">PRO — Ver desglose completo</span>
+      </div>
+      <div class="blurred p-3 grid grid-cols-2 gap-3">
+        <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs font-medium text-gray-400 mb-2">Países</p>
+          <div class="space-y-1.5"><div class="h-3 bg-gray-200 rounded w-3/4"></div><div class="h-3 bg-gray-200 rounded w-1/2"></div><div class="h-3 bg-gray-200 rounded w-1/3"></div></div>
+        </div>
+        <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs font-medium text-gray-400 mb-2">Navegadores</p>
+          <div class="space-y-1.5"><div class="h-3 bg-gray-200 rounded w-3/4"></div><div class="h-3 bg-gray-200 rounded w-1/2"></div></div>
+        </div>
+      </div>
+    </div>
+    <!-- Pro: real breakdown -->
+    <div id="aModal-breakdown" class="hidden grid grid-cols-2 gap-3">
+      <div><p class="text-xs font-medium text-gray-500 mb-2">Países</p><div id="aModal-countries" class="space-y-1.5"></div></div>
+      <div><p class="text-xs font-medium text-gray-500 mb-2">Navegadores</p><div id="aModal-browsers" class="space-y-1.5"></div></div>
+      <div><p class="text-xs font-medium text-gray-500 mb-2">Dispositivos</p><div id="aModal-devices" class="space-y-1.5"></div></div>
+      <div><p class="text-xs font-medium text-gray-500 mb-2">Referrers</p><div id="aModal-referrers" class="space-y-1.5"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="py-5 text-center text-white relative">
+  <div class="absolute right-4 top-4 flex items-center gap-2">
+    <button id="darkToggle" onclick="toggleDark()" class="w-9 h-9 flex items-center justify-center rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 transition">
+      <svg id="iconSun" class="hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg id="iconMoon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+    <button onclick="logout()" class="flex items-center gap-1.5 text-white/70 hover:text-white text-xs font-medium px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 transition">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Salir
+    </button>
+  </div>
+  <div class="flex items-center justify-center gap-2 mb-2">
+    <svg width="30" height="30" viewBox="0 0 36 36" fill="none"><rect width="36" height="36" rx="10" fill="rgba(255,255,255,0.2)"/><path d="M14 18h8M20 14l4 4-4 4M16 14l-4 4 4 4" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <h1 class="text-2xl font-bold tracking-tight">LabShortURL</h1>
+  </div>
+  <div class="flex items-center justify-center gap-2 mt-1">
+    <div id="userAvatar" class="w-7 h-7 rounded-full bg-white/90 flex items-center justify-center text-xs font-bold text-purple-700"></div>
+    <span id="userNameEl" class="text-white/80 text-sm font-medium"></span>
+    <span id="planBadge" class="px-2 py-0.5 rounded-full text-xs font-bold"></span>
+  </div>
+  <div id="limitBar" class="hidden mt-2 flex justify-center">
+    <div class="flex items-center gap-2 text-xs text-white/60 bg-white/10 rounded-full px-3 py-1">
+      <span id="limitText">0 / 5 URLs</span>
+      <div class="w-20 h-1.5 bg-white/20 rounded-full overflow-hidden"><div id="limitFill" class="h-full rounded-full transition-all" style="background:#f59e0b;width:0%"></div></div>
+    </div>
+  </div>
+</header>
+
+<!-- TABS -->
+<div class="flex justify-center gap-0 px-4 pb-3">
+  <button class="tab-btn active px-5 py-2 text-sm" onclick="showTab('shorten')" data-tab="shorten">Acortar</button>
+  <button class="tab-btn px-5 py-2 text-sm" onclick="showTab('urls')" data-tab="urls">Mis URLs</button>
+  <button class="tab-btn px-5 py-2 text-sm" onclick="showTab('stats')" data-tab="stats">Estadísticas</button>
+  <button class="tab-btn px-5 py-2 text-sm" onclick="showTab('account')" data-tab="account">Mi cuenta</button>
+</div>
+
+<!-- MAIN -->
+<main class="flex-1 flex flex-col items-center px-4 pb-12">
+<div class="w-full max-w-2xl space-y-4">
+
+<!-- ══ PANE: ACORTAR ══ -->
+<div id="pane-shorten">
+  <div class="card rounded-2xl shadow-xl p-6">
+    <form id="shortenForm" class="space-y-4" onsubmit="submitShorten(event)">
+      <!-- URL principal -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">URL a acortar</label>
+        <input id="urlInput" type="url" placeholder="https://ejemplo.com/enlace-largo" required
+          class="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"/>
+      </div>
+
+      <!-- Alias (bloqueado en free) -->
+      <div id="aliasWrap" class="pro-lock">
+        <div class="lock-overlay" onclick="showUpgrade('customAlias')"></div>
+        <span class="pro-badge">PRO</span>
+        <label class="block text-sm font-medium text-gray-700 mb-1 inner">Alias personalizado</label>
+        <input id="aliasInput" type="text" placeholder="mi-enlace"
+          class="w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 inner"/>
+        <p class="text-xs text-gray-400 mt-1 inner">Letras, números, - y _ (3-30 caracteres)</p>
+      </div>
+
+      <!-- Expiración + Max clics (bloqueado en free) -->
+      <div id="limitsWrap" class="pro-lock">
+        <div class="lock-overlay" onclick="showUpgrade('expiration')"></div>
+        <span class="pro-badge" style="top:38px">PRO</span>
+        <div class="grid grid-cols-2 gap-3 inner">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Expira el</label>
+            <input id="expiresInput" type="datetime-local" class="w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none"/>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Límite de clics</label>
+            <input id="maxClicksInput" type="number" min="1" placeholder="Sin límite" class="w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contraseña (bloqueado en free) -->
+      <div id="passwordWrap" class="pro-lock">
+        <div class="lock-overlay" onclick="showUpgrade('password')"></div>
+        <span class="pro-badge">PRO</span>
+        <label class="block text-sm font-medium text-gray-700 mb-1 inner">Contraseña de acceso</label>
+        <input id="passwordInput" type="password" placeholder="Dejar vacío = sin protección"
+          class="w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none inner"/>
+      </div>
+
+      <!-- UTM (bloqueado en free) -->
+      <div id="utmWrap" class="pro-lock">
+        <div class="lock-overlay" onclick="showUpgrade('utm')"></div>
+        <span class="pro-badge" style="top:12px">PRO</span>
+        <button type="button" class="flex items-center gap-2 text-sm text-purple-500 font-medium inner" onclick="">
+          <svg id="utmChevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          Parámetros UTM de campaña
+        </button>
+        <div class="hidden mt-3 p-4 bg-purple-50 rounded-xl border border-purple-100 grid grid-cols-2 gap-3 inner">
+          <div><label class="block text-xs font-medium text-gray-600 mb-1">utm_source</label><input type="text" placeholder="google, newsletter…" class="w-full border rounded-lg px-3 py-2 text-xs"/></div>
+          <div><label class="block text-xs font-medium text-gray-600 mb-1">utm_medium</label><input type="text" placeholder="cpc, email…" class="w-full border rounded-lg px-3 py-2 text-xs"/></div>
+          <div><label class="block text-xs font-medium text-gray-600 mb-1">utm_campaign</label><input id="utm_source" type="text" placeholder="nombre campaña" class="w-full border rounded-lg px-3 py-2 text-xs"/></div>
+          <div><label class="block text-xs font-medium text-gray-600 mb-1">utm_content</label><input id="utm_medium" type="text" placeholder="banner-a…" class="w-full border rounded-lg px-3 py-2 text-xs"/></div>
+        </div>
+      </div>
+
+      <!-- Error box -->
+      <div id="shortenError" class="hidden text-red-600 text-xs bg-red-50 border border-red-200 rounded-xl px-4 py-2.5"></div>
+
+      <button type="submit" id="shortenBtn" class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm">
+        Acortar URL
+      </button>
+    </form>
+
+    <!-- Resultado -->
+    <div id="shortenResult" class="hidden mt-5 p-4 bg-purple-50 rounded-xl border border-purple-100">
+      <p class="text-xs text-purple-500 font-medium mb-2 uppercase tracking-wide">Tu enlace acortado</p>
+      <div class="flex items-center gap-2">
+        <a id="resultLink" href="#" target="_blank" class="text-purple-700 font-semibold text-base flex-1 truncate hover:underline"></a>
+        <button id="resultCopyBtn" onclick="copyResult()" class="copy-btn px-3 py-1.5 border border-purple-300 text-purple-600 text-xs rounded-lg hover:bg-purple-100 transition">Copiar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PANE: MIS URLs ══ -->
+<div id="pane-urls" class="hidden">
+  <!-- Búsqueda y filtros -->
+  <div class="flex flex-col gap-3 mb-3">
+    <input id="searchInput" type="search" placeholder="Buscar por URL o código…"
+      class="w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+      oninput="filterUrls()" style="background:rgba(255,255,255,0.15);color:white;border-color:rgba(255,255,255,0.2)"/>
+    <div class="flex gap-2 flex-wrap">
+      <button class="filter-btn active text-xs px-3 py-1.5 rounded-lg transition" onclick="setFilter('all',this)">Todos</button>
+      <button class="filter-btn text-xs px-3 py-1.5 rounded-lg transition" onclick="setFilter('active',this)">Activos</button>
+      <button class="filter-btn text-xs px-3 py-1.5 rounded-lg transition" onclick="setFilter('expired',this)">Expirados</button>
+      <button class="filter-btn text-xs px-3 py-1.5 rounded-lg transition" onclick="setFilter('protected',this)">Protegidos</button>
+      <select id="sortSelect" onchange="loadUrls()"
+        class="ml-auto text-xs px-3 py-1.5 rounded-lg border" style="background:rgba(255,255,255,0.15);color:white;border-color:rgba(255,255,255,0.2)">
+        <option value="newest">Más nuevos</option>
+        <option value="oldest">Más antiguos</option>
+        <option value="most">Más clics</option>
+        <option value="least">Menos clics</option>
+      </select>
+    </div>
+  </div>
+  <!-- Lista de URLs -->
+  <div id="urlList" class="space-y-3">
+    <div class="card rounded-2xl p-8 text-center text-gray-400 text-sm">Cargando…</div>
+  </div>
+</div>
+
+<!-- ══ PANE: ESTADÍSTICAS ══ -->
+<div id="pane-stats" class="hidden space-y-4">
+  <!-- KPIs -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">URLs</p>
+      <p id="st-totalUrls" class="text-white text-2xl font-bold">—</p>
+    </div>
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">Clics totales</p>
+      <p id="st-totalClicks" class="text-white text-2xl font-bold">—</p>
+    </div>
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">Hoy</p>
+      <p id="st-today" class="text-yellow-300 text-2xl font-bold">—</p>
+    </div>
+    <div class="kpi-card rounded-2xl p-4 text-center">
+      <p class="text-white/60 text-xs font-medium uppercase tracking-wide mb-1">7 días</p>
+      <p id="st-7d" class="text-sky-300 text-2xl font-bold">—</p>
+    </div>
+  </div>
+  <!-- Gráfico de clics por día -->
+  <div class="card rounded-2xl shadow-lg p-5">
+    <p class="text-sm font-semibold text-gray-700 mb-4">Clics por día (últimos 30 días)</p>
+    <div style="height:180px"><canvas id="statsChart"></canvas></div>
+  </div>
+  <!-- Breakdown — bloqueado en free -->
+  <div id="st-breakdownFree" class="card rounded-2xl shadow-lg overflow-hidden">
+    <div class="pro-section-lock">
+      <div class="section-overlay" onclick="showUpgrade('analyticsDetail')">
+        <div class="text-center">
+          <span class="px-4 py-2 rounded-xl text-sm font-bold text-white" style="background:linear-gradient(135deg,#f59e0b,#d97706)">PRO — Desglose por país, navegador y más</span>
+        </div>
+      </div>
+      <div class="blurred p-5 grid grid-cols-2 gap-4">
+        <div><p class="text-xs font-medium text-gray-500 mb-3">Países</p>
+          <div class="space-y-2"><div class="h-4 bg-gray-100 rounded w-full"></div><div class="h-4 bg-gray-100 rounded w-3/4"></div><div class="h-4 bg-gray-100 rounded w-1/2"></div></div>
+        </div>
+        <div><p class="text-xs font-medium text-gray-500 mb-3">Navegadores</p>
+          <div class="space-y-2"><div class="h-4 bg-gray-100 rounded w-full"></div><div class="h-4 bg-gray-100 rounded w-2/3"></div><div class="h-4 bg-gray-100 rounded w-1/3"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Breakdown — visible en pro -->
+  <div id="st-breakdownPro" class="hidden card rounded-2xl shadow-lg p-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
+    <div><p class="text-xs font-semibold text-gray-600 mb-3">Países</p><div id="st-countries" class="space-y-2"></div></div>
+    <div><p class="text-xs font-semibold text-gray-600 mb-3">Navegadores</p><div id="st-browsers" class="space-y-2"></div></div>
+    <div><p class="text-xs font-semibold text-gray-600 mb-3">Dispositivos</p><div id="st-devices" class="space-y-2"></div></div>
+  </div>
+</div>
+
+<!-- ══ PANE: MI CUENTA ══ -->
+<div id="pane-account" class="hidden space-y-4">
+  <!-- Plan actual -->
+  <div class="card rounded-2xl shadow-lg p-6">
+    <h2 class="text-sm font-bold text-gray-700 mb-4">Tu plan actual</h2>
+    <div id="planCard" class="rounded-xl p-4 border-2 mb-4" style="border-color:#667eea;background:linear-gradient(135deg,#667eea0a,#764ba205)">
+      <div class="flex items-center justify-between">
+        <div>
+          <p id="planName" class="text-lg font-bold" style="color:var(--text-main)">—</p>
+          <p id="planDesc" class="text-xs mt-0.5" style="color:var(--text-soft)"></p>
+        </div>
+        <span id="planBadgeCard" class="px-3 py-1 rounded-full text-xs font-bold"></span>
+      </div>
+    </div>
+    <!-- Features comparison -->
+    <div class="space-y-2 text-sm">
+      <div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--border)">
+        <span style="color:var(--text-soft)">URLs permitidas</span>
+        <span id="feat-urls" class="font-semibold" style="color:var(--text-main)">—</span>
+      </div>
+      <div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--border)">
+        <span style="color:var(--text-soft)">Alias personalizado</span>
+        <span id="feat-alias" class="font-semibold">—</span>
+      </div>
+      <div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--border)">
+        <span style="color:var(--text-soft)">Protección contraseña</span>
+        <span id="feat-pass" class="font-semibold">—</span>
+      </div>
+      <div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--border)">
+        <span style="color:var(--text-soft)">Fecha de expiración</span>
+        <span id="feat-exp" class="font-semibold">—</span>
+      </div>
+      <div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--border)">
+        <span style="color:var(--text-soft)">Parámetros UTM</span>
+        <span id="feat-utm" class="font-semibold">—</span>
+      </div>
+      <div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--border)">
+        <span style="color:var(--text-soft)">Códigos QR</span>
+        <span id="feat-qr" class="font-semibold">—</span>
+      </div>
+      <div class="flex items-center justify-between py-1.5 border-b" style="border-color:var(--border)">
+        <span style="color:var(--text-soft)">Analíticas completas</span>
+        <span id="feat-analytics" class="font-semibold">—</span>
+      </div>
+      <div class="flex items-center justify-between py-1.5">
+        <span style="color:var(--text-soft)">Exportar CSV</span>
+        <span id="feat-csv" class="font-semibold">—</span>
+      </div>
+    </div>
+    <!-- Upgrade CTA (solo en free) -->
+    <div id="upgradeCta" class="hidden mt-5 p-4 rounded-xl text-center" style="background:linear-gradient(135deg,#f59e0b15,#d9770608);border:1px solid #f59e0b33">
+      <p class="text-sm font-semibold text-amber-700 mb-1">¿Quieres más funciones?</p>
+      <p class="text-xs text-amber-600 mb-3">Contacta al administrador para actualizar tu cuenta a Pro.</p>
+      <button onclick="showUpgrade('general')" class="px-5 py-2 rounded-xl text-sm font-bold text-white" style="background:linear-gradient(135deg,#f59e0b,#d97706)">Ver plan Pro</button>
+    </div>
+  </div>
+
+  <!-- Cambiar contraseña -->
+  <div class="card rounded-2xl shadow-lg p-6">
+    <h2 class="text-sm font-bold text-gray-700 mb-4">Cambiar contraseña</h2>
+    <div class="space-y-3">
+      <div><label class="block text-xs font-medium text-gray-600 mb-1">Contraseña actual</label>
+        <input id="pwdCurrent" type="password" placeholder="••••••••" class="w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"/></div>
+      <div><label class="block text-xs font-medium text-gray-600 mb-1">Nueva contraseña</label>
+        <input id="pwdNew" type="password" placeholder="Mínimo 6 caracteres" class="w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"/></div>
+      <div id="pwdError" class="hidden text-red-500 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
+      <div id="pwdSuccess" class="hidden text-emerald-600 text-xs bg-green-50 border border-green-200 rounded-lg px-3 py-2">✓ Contraseña actualizada</div>
+      <button onclick="changePassword()" class="btn-primary w-full py-2.5 rounded-xl text-sm text-white font-medium">Actualizar contraseña</button>
+    </div>
+  </div>
+
+  <!-- Info cuenta -->
+  <div class="card rounded-2xl shadow-lg p-5">
+    <h2 class="text-sm font-bold text-gray-700 mb-3">Información de la cuenta</h2>
+    <div class="space-y-2 text-sm">
+      <div class="flex justify-between py-1.5 border-b" style="border-color:var(--border)">
+        <span style="color:var(--text-soft)">Email</span>
+        <span id="acct-email" class="font-medium" style="color:var(--text-main)">—</span>
+      </div>
+      <div class="flex justify-between py-1.5">
+        <span style="color:var(--text-soft)">Miembro desde</span>
+        <span id="acct-since" class="font-medium" style="color:var(--text-main)">—</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- end max-w-2xl -->
+</main>
+
+<script>
+// ── STATE ──
+let currentUser = null, currentLimits = null;
+let currentFilter = 'all', allUrls = [];
+let editingCode = null, qrCode = null, qrSize = 300;
+let statsChart = null, aModalChart = null;
+
+// ── THEME ──
+function toggleDark() {
+  const d = document.documentElement.classList.toggle('dark');
+  localStorage.setItem('theme', d ? 'dark' : 'light');
+  document.getElementById('iconSun').classList.toggle('hidden', !d);
+  document.getElementById('iconMoon').classList.toggle('hidden', d);
+  if (statsChart) updateChartColors(statsChart);
+}
+(function(){
+  const d = document.documentElement.classList.contains('dark');
+  document.getElementById('iconSun').classList.toggle('hidden', !d);
+  document.getElementById('iconMoon').classList.toggle('hidden', d);
+})();
+
+function chartColors() {
+  const d = document.documentElement.classList.contains('dark');
+  return { grid: d ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)', tick: d ? '#a89ec8' : '#9ca3af' };
+}
+function updateChartColors(c) {
+  if (!c) return;
+  const { grid, tick } = chartColors();
+  c.options.scales.x.grid.color = grid; c.options.scales.x.ticks.color = tick;
+  c.options.scales.y.grid.color = grid; c.options.scales.y.ticks.color = tick;
+  c.update();
+}
+
+// ── AUTH ──
+async function checkAuth() {
+  const res = await fetch('/api/auth/me');
+  if (!res.ok) { window.location.href = '/login'; return; }
+  const data = await res.json();
+  currentUser = data.user;
+  currentLimits = data.limits;
+  renderUserInfo();
+  applyPlanLocks();
+}
+
+function renderUserInfo() {
+  const { name, email, plan } = currentUser;
+  const display = name || email.split('@')[0];
+  document.getElementById('userAvatar').textContent = display[0].toUpperCase();
+  document.getElementById('userNameEl').textContent = display;
+  const badge = document.getElementById('planBadge');
+  badge.textContent = plan === 'pro' ? '⭐ Pro' : 'Gratis';
+  badge.className = 'px-2 py-0.5 rounded-full text-xs font-bold ' + (plan === 'pro' ? 'badge-pro' : 'badge-free');
+
+  // URL limit bar (free only)
+  if (plan !== 'pro') {
+    const max = currentLimits.maxUrls || 5;
+    const used = currentLimits.urlCount || 0;
+    document.getElementById('limitBar').classList.remove('hidden');
+    document.getElementById('limitBar').classList.add('flex');
+    document.getElementById('limitText').textContent = `${used} / ${max} URLs usadas`;
+    document.getElementById('limitFill').style.width = Math.min(100, used/max*100) + '%';
+  }
+}
+
+function applyPlanLocks() {
+  const isPro = currentUser.plan === 'pro';
+  if (isPro) {
+    // Remove all pro-lock wrappers so fields are editable
+    ['aliasWrap','limitsWrap','passwordWrap','utmWrap'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.remove('pro-lock');
+      const ov = el.querySelector('.lock-overlay');
+      const pb = el.querySelector('.pro-badge');
+      if (ov) ov.remove();
+      if (pb) pb.remove();
+      el.querySelectorAll('.inner').forEach(i => i.classList.remove('inner'));
+    });
+  }
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login';
+}
+
+// ── TABS ──
+function showTab(tab) {
+  ['shorten','urls','stats','account'].forEach(t => {
+    document.getElementById('pane-' + t).classList.toggle('hidden', t !== tab);
+  });
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+  if (tab === 'urls') loadUrls();
+  if (tab === 'stats') loadStats();
+  if (tab === 'account') renderAccount();
+}
+
+// ── SHORTEN ──
+async function submitShorten(e) {
+  e.preventDefault();
+  const errEl = document.getElementById('shortenError');
+  const btn   = document.getElementById('shortenBtn');
+  const resEl = document.getElementById('shortenResult');
+  errEl.classList.add('hidden');
+  resEl.classList.add('hidden');
+  btn.textContent = 'Acortando…'; btn.disabled = true;
+
+  const body = { url: document.getElementById('urlInput').value.trim() };
+  const alias = document.getElementById('aliasInput').value.trim();
+  if (alias) body.alias = alias;
+
+  try {
+    const res = await fetch('/api/shorten', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (data.plan_required) { showUpgrade(data.feature); return; }
+      errEl.textContent = data.error || 'Error al acortar';
+      errEl.classList.remove('hidden');
+    } else {
+      document.getElementById('resultLink').href = data.short;
+      document.getElementById('resultLink').textContent = data.short;
+      resEl.classList.remove('hidden');
+      document.getElementById('urlInput').value = '';
+      document.getElementById('aliasInput').value = '';
+      // Refresh limit bar
+      await checkAuth();
+    }
+  } catch { errEl.textContent = 'Error de conexión.'; errEl.classList.remove('hidden'); }
+  finally { btn.disabled = false; btn.textContent = 'Acortar URL'; }
+}
+
+function copyResult() {
+  const link = document.getElementById('resultLink').href;
+  navigator.clipboard.writeText(link);
+  const btn = document.getElementById('resultCopyBtn');
+  btn.textContent = '✓ Copiado'; btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'Copiar'; btn.classList.remove('copied'); }, 2000);
+}
+
+// ── URL LIST ──
+async function loadUrls() {
+  const q = document.getElementById('searchInput').value.trim();
+  const sort = document.getElementById('sortSelect').value;
+  const res = await fetch(`/api/urls?q=${encodeURIComponent(q)}&status=${currentFilter}&sort=${sort}`);
+  if (!res.ok) return;
+  allUrls = await res.json();
+  renderUrls(allUrls);
+}
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadUrls();
+}
+
+function filterUrls() { loadUrls(); }
+
+function urlStatus(u) {
+  const now = Date.now();
+  if (u.password_hash || u.protected) return 'protected';
+  if ((u.expires_at && new Date(u.expires_at) <= now) || (u.max_clicks && u.clicks >= u.max_clicks)) return 'expired';
+  return 'active';
+}
+
+function statusBadge(u) {
+  const s = urlStatus(u);
+  if (s === 'protected') return '<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">🔒 Protegida</span>';
+  if (s === 'expired')   return '<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-600">Expirada</span>';
+  return '<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Activa</span>';
+}
+
+function renderUrls(urls) {
+  const list = document.getElementById('urlList');
+  if (!urls.length) {
+    list.innerHTML = '<div class="card rounded-2xl p-10 text-center text-gray-400 text-sm">No tienes URLs aún. ¡Acorta tu primer enlace!</div>';
+    return;
+  }
+  list.innerHTML = urls.map(u => {
+    const code = u.alias || u.code;
+    const short = u.short || (location.origin + '/' + code);
+    const isPro = currentUser.plan === 'pro';
+    return `<div class="url-card card rounded-2xl p-4 flex items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap mb-1">
+          <a href="${short}" target="_blank" class="text-purple-600 font-semibold text-sm hover:underline truncate">${short}</a>
+          ${statusBadge(u)}
+          <span class="text-[10px] text-white/70 bg-white/20 px-1.5 py-0.5 rounded font-medium">${u.clicks} clic${u.clicks!==1?'s':''}</span>
+        </div>
+        <p class="text-xs truncate" style="color:var(--text-soft)" title="${u.original}">${u.original}</p>
+      </div>
+      <div class="flex gap-1.5 flex-shrink-0">
+        <button onclick="openAnalytics('${code}')" title="Estadísticas"
+          class="w-8 h-8 rounded-lg border flex items-center justify-center text-xs hover:bg-gray-50 transition" style="border-color:var(--border);color:var(--text-soft)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </button>
+        ${isPro ? `<button onclick="openQR('${code}')" title="QR"
+          class="w-8 h-8 rounded-lg border flex items-center justify-center hover:bg-gray-50 transition" style="border-color:var(--border);color:var(--text-soft)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="14" y1="14" x2="14.01" y2="14"/><line x1="17" y1="14" x2="17.01" y2="14"/><line x1="20" y1="14" x2="20.01" y2="14"/><line x1="14" y1="17" x2="14.01" y2="17"/><line x1="17" y1="17" x2="17.01" y2="17"/><line x1="20" y1="17" x2="20.01" y2="17"/><line x1="14" y1="20" x2="14.01" y2="20"/><line x1="17" y1="20" x2="17.01" y2="20"/><line x1="20" y1="20" x2="20.01" y2="20"/></svg>
+        </button>` : ''}
+        <button onclick="copyToClipboard('${short}', this)" title="Copiar"
+          class="copy-btn w-8 h-8 rounded-lg border flex items-center justify-center hover:bg-gray-50 transition" style="border-color:var(--border);color:var(--text-soft)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button onclick="openEdit(${JSON.stringify(u).replace(/"/g,'&quot;')})" title="Editar"
+          class="w-8 h-8 rounded-lg border flex items-center justify-center hover:bg-gray-50 transition" style="border-color:var(--border);color:var(--text-soft)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button onclick="confirmDelete('${code}', this)" title="Eliminar"
+          class="w-8 h-8 rounded-lg border flex items-center justify-center hover:bg-red-50 hover:border-red-200 hover:text-red-500 transition" style="border-color:var(--border);color:var(--text-soft)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function copyToClipboard(text, btn) {
+  navigator.clipboard.writeText(text);
+  btn.classList.add('copied');
+  setTimeout(() => btn.classList.remove('copied'), 2000);
+}
+
+// ── EDIT ──
+function openEdit(u) {
+  editingCode = u.code;
+  document.getElementById('editUrl').value = u.original || '';
+  document.getElementById('editAlias').value = u.alias || '';
+  document.getElementById('editExpires').value = u.expires_at ? u.expires_at.slice(0,16) : '';
+  document.getElementById('editErr').classList.add('hidden');
+  const isPro = currentUser.plan === 'pro';
+  document.getElementById('editAliasRow').classList.toggle('hidden', !isPro);
+  document.getElementById('editExpiresRow').classList.toggle('hidden', !isPro);
+  document.getElementById('editModal').classList.remove('hidden');
+}
+function closeEdit() { document.getElementById('editModal').classList.add('hidden'); }
+
+async function saveEdit() {
+  const errEl = document.getElementById('editErr');
+  errEl.classList.add('hidden');
+  const body = {
+    url: document.getElementById('editUrl').value.trim(),
+    alias: document.getElementById('editAlias').value.trim() || null,
+    expires_at: document.getElementById('editExpires').value || null,
+    show_preview: false,
+  };
+  const res = await fetch('/api/urls/' + editingCode, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error || 'Error'; errEl.classList.remove('hidden'); return; }
+  closeEdit();
+  loadUrls();
+}
+
+// ── DELETE ──
+async function confirmDelete(code, btn) {
+  if (!confirm('¿Eliminar este enlace? Esta acción no se puede deshacer.')) return;
+  btn.disabled = true;
+  const res = await fetch('/api/urls/' + code, { method: 'DELETE' });
+  if (res.ok) loadUrls();
+  else btn.disabled = false;
+}
+
+// ── QR ──
+function openQR(code) {
+  qrCode = code; qrSize = 300;
+  document.getElementById('qrLabel').textContent = '/' + code;
+  document.getElementById('qrModal').classList.remove('hidden');
+  loadQR();
+}
+function closeQR() { document.getElementById('qrModal').classList.add('hidden'); }
+function setQRSize(s) {
+  qrSize = s;
+  document.querySelectorAll('.qr-size-btn').forEach(b => {
+    const isActive = (s===150&&b.textContent==='S')||(s===300&&b.textContent==='M')||(s===600&&b.textContent==='L');
+    b.style.background = isActive ? '#667eea' : '';
+    b.style.color = isActive ? 'white' : '';
+  });
+  loadQR();
+}
+function loadQR() {
+  const wrap = document.getElementById('qrImgWrap');
+  const dl = document.getElementById('qrDownload');
+  const url = `/api/qr/${qrCode}?size=${qrSize}`;
+  wrap.innerHTML = `<img src="${url}" class="rounded-xl" style="width:${Math.min(qrSize,220)}px;height:${Math.min(qrSize,220)}px"/>`;
+  dl.href = url;
+  dl.download = `qr-${qrCode}.png`;
+}
+
+// ── ANALYTICS MODAL ──
+async function openAnalytics(code) {
+  document.getElementById('analyticsModal').classList.remove('hidden');
+  document.getElementById('aModal-clicks').textContent = '…';
+  document.getElementById('aModal-created').textContent = '…';
+  const res = await fetch(`/api/analytics/${code}`);
+  if (!res.ok) return;
+  const d = await res.json();
+  const short = d.short || (location.origin + '/' + (d.alias || d.code));
+  document.getElementById('aModal-short').textContent = short;
+  document.getElementById('aModal-short').href = short;
+  document.getElementById('aModal-original').textContent = d.original || '';
+  document.getElementById('aModal-clicks').textContent = d.clicks || 0;
+  document.getElementById('aModal-created').textContent = d.created_at ? new Date(d.created_at).toLocaleDateString('es-ES') : '—';
+
+  // Day chart
+  const sorted = [...(d.byDay||[])].sort((a,b)=>a.day<b.day?-1:1);
+  const { grid, tick } = chartColors();
+  const ctx = document.getElementById('aModalChart');
+  if (aModalChart) aModalChart.destroy();
+  aModalChart = new Chart(ctx, {
+    type:'line', data:{ labels:sorted.map(r=>r.day.slice(5)), datasets:[{ data:sorted.map(r=>r.count), borderColor:'#667eea', backgroundColor:'rgba(102,126,234,0.12)', borderWidth:2, tension:0.4, fill:true, pointRadius:2 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{grid:{color:grid},ticks:{color:tick,maxTicksLimit:8,maxRotation:0}}, y:{grid:{color:grid},ticks:{color:tick,precision:0},beginAtZero:true} } }
+  });
+
+  // Breakdown
+  if (d.plan_limited) {
+    document.getElementById('aModal-proLock').classList.remove('hidden');
+    document.getElementById('aModal-breakdown').classList.add('hidden');
+  } else {
+    document.getElementById('aModal-proLock').classList.add('hidden');
+    document.getElementById('aModal-breakdown').classList.remove('hidden');
+    renderBars('aModal-countries', d.byCountry||[]);
+    renderBars('aModal-browsers', d.byBrowser||[]);
+    renderBars('aModal-devices', d.byDevice||[]);
+    renderBars('aModal-referrers', d.byReferrer||[]);
+  }
+}
+function closeAnalytics() { document.getElementById('analyticsModal').classList.add('hidden'); }
+
+function renderBars(id, data) {
+  const el = document.getElementById(id);
+  if (!data.length) { el.innerHTML = '<p class="text-xs text-gray-400">Sin datos</p>'; return; }
+  const max = data[0].count;
+  el.innerHTML = data.slice(0,6).map(r => `
+    <div class="flex items-center gap-2">
+      <span class="text-xs w-20 truncate flex-shrink-0" style="color:var(--text-soft)">${r.label||'—'}</span>
+      <div class="flex-1 bg-gray-100 rounded-full overflow-hidden" style="height:6px">
+        <div class="stat-bar rounded-full" style="width:${max?Math.round(r.count/max*100):0}%;height:100%"></div>
+      </div>
+      <span class="text-xs font-semibold w-6 text-right flex-shrink-0" style="color:var(--text-main)">${r.count}</span>
+    </div>`).join('');
+}
+
+// ── STATS TAB ──
+async function loadStats() {
+  const res = await fetch('/api/user/analytics');
+  if (!res.ok) return;
+  const d = await res.json();
+  document.getElementById('st-totalUrls').textContent = d.summary?.total_urls ?? '—';
+  document.getElementById('st-totalClicks').textContent = d.summary?.total_clicks ?? '—';
+  document.getElementById('st-today').textContent = d.summary?.clicks_today ?? '—';
+  document.getElementById('st-7d').textContent = d.summary?.clicks_7d ?? '—';
+
+  const sorted = [...(d.byDay||[])].sort((a,b)=>a.day<b.day?-1:1);
+  const { grid, tick } = chartColors();
+  const ctx = document.getElementById('statsChart');
+  if (statsChart) statsChart.destroy();
+  statsChart = new Chart(ctx, {
+    type:'line', data:{ labels:sorted.map(r=>r.day.slice(5)), datasets:[{ data:sorted.map(r=>r.count), borderColor:'#667eea', backgroundColor:'rgba(102,126,234,0.12)', borderWidth:2, tension:0.4, fill:true, pointRadius:2 }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{grid:{color:grid},ticks:{color:tick,maxTicksLimit:8,maxRotation:0}}, y:{grid:{color:grid},ticks:{color:tick,precision:0},beginAtZero:true} } }
+  });
+
+  if (d.plan_limited) {
+    document.getElementById('st-breakdownFree').classList.remove('hidden');
+    document.getElementById('st-breakdownPro').classList.add('hidden');
+  } else {
+    document.getElementById('st-breakdownFree').classList.add('hidden');
+    document.getElementById('st-breakdownPro').classList.remove('hidden');
+    renderBars('st-countries', d.byCountry||[]);
+    renderBars('st-browsers', d.byBrowser||[]);
+    renderBars('st-devices', d.byDevice||[]);
+  }
+}
+
+// ── ACCOUNT TAB ──
+function renderAccount() {
+  const { plan, email } = currentUser;
+  const limits = currentLimits;
+  document.getElementById('planName').textContent = plan === 'pro' ? 'Plan Pro' : 'Plan Gratuito';
+  document.getElementById('planDesc').textContent = plan === 'pro' ? 'Acceso completo a todas las funciones' : 'Hasta 5 URLs con funciones básicas';
+  const bc = document.getElementById('planBadgeCard');
+  bc.textContent = plan === 'pro' ? '⭐ Pro' : 'Gratis';
+  bc.className = 'px-3 py-1 rounded-full text-xs font-bold ' + (plan==='pro'?'badge-pro':'badge-free');
+  document.getElementById('upgradeCta').classList.toggle('hidden', plan === 'pro');
+
+  const yes = '<span class="text-emerald-600">✓ Sí</span>';
+  const no  = '<span class="text-red-400">✗ No</span>';
+  const isPro = plan === 'pro';
+  document.getElementById('feat-urls').innerHTML     = isPro ? '<span class="text-emerald-600">Ilimitadas</span>' : '<span class="text-amber-600">5 URLs</span>';
+  document.getElementById('feat-alias').innerHTML    = isPro ? yes : no;
+  document.getElementById('feat-pass').innerHTML     = isPro ? yes : no;
+  document.getElementById('feat-exp').innerHTML      = isPro ? yes : no;
+  document.getElementById('feat-utm').innerHTML      = isPro ? yes : no;
+  document.getElementById('feat-qr').innerHTML       = isPro ? yes : no;
+  document.getElementById('feat-analytics').innerHTML= isPro ? yes : no;
+  document.getElementById('feat-csv').innerHTML      = isPro ? yes : no;
+  document.getElementById('acct-email').textContent  = email;
+}
+
+// ── CHANGE PASSWORD ──
+async function changePassword() {
+  const errEl = document.getElementById('pwdError');
+  const okEl  = document.getElementById('pwdSuccess');
+  errEl.classList.add('hidden'); okEl.classList.add('hidden');
+  const current = document.getElementById('pwdCurrent').value;
+  const newPassword = document.getElementById('pwdNew').value;
+  if (!current || !newPassword) { errEl.textContent='Completa ambos campos'; errEl.classList.remove('hidden'); return; }
+  const res = await fetch('/api/auth/change-password', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ current, newPassword }),
+  });
+  const data = await res.json();
+  if (!res.ok) { errEl.textContent = data.error||'Error'; errEl.classList.remove('hidden'); }
+  else { okEl.classList.remove('hidden'); document.getElementById('pwdCurrent').value=''; document.getElementById('pwdNew').value=''; }
+}
+
+// ── UPGRADE MODAL ──
+const upgradeMessages = {
+  customAlias: 'El alias personalizado te permite elegir el nombre de tu enlace.',
+  password: 'Protege tus enlaces con contraseña para controlar quién accede.',
+  expiration: 'Establece una fecha de expiración automática para tus enlaces.',
+  utm: 'Añade parámetros UTM para rastrear el origen de tus visitas.',
+  analyticsDetail: 'Accede al desglose completo: país, navegador, dispositivo y más.',
+  csvExport: 'Exporta todos tus enlaces a un archivo CSV.',
+  qr: 'Genera códigos QR para cualquiera de tus enlaces.',
+  general: 'Desbloquea todas las funciones avanzadas.',
+};
+function showUpgrade(feature) {
+  document.getElementById('upgradeDesc').textContent = upgradeMessages[feature] || 'Esta función requiere el plan Pro.';
+  document.getElementById('upgradeModal').classList.remove('hidden');
+}
+
+// ── INIT ──
+checkAuth();
+</script>
+</body>
+</html>

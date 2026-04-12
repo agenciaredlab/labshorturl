@@ -66,6 +66,34 @@ if (!process.env.ADMIN_PASS && !fs.existsSync('/run/secrets/ADMIN_PASS')) {
 // PIN exclusivo para el Super Admin (opcional pero recomendado)
 const SUPERADMIN_PASS = readSecret('SUPERADMIN_PASS', '');
 
+// ── PLAN DEFINITIONS ──
+const PLANS = {
+  free: {
+    maxUrls:        5,
+    customAlias:    false,
+    password:       false,
+    expiration:     false,
+    utm:            false,
+    qr:             false,
+    analyticsDetail: false,
+    csvExport:      false,
+  },
+  pro: {
+    maxUrls:        Infinity,
+    customAlias:    true,
+    password:       true,
+    expiration:     true,
+    utm:            true,
+    qr:             true,
+    analyticsDetail: true,
+    csvExport:      true,
+  },
+};
+
+function getPlan(planName) {
+  return PLANS[planName] || PLANS.free;
+}
+
 // ── SENTRY ──
 const SENTRY_DSN = readSecret('SENTRY_DSN', '');
 if (SENTRY_DSN) {
@@ -117,6 +145,23 @@ app.use(session({
   },
 }));
 
+// Static files — but handle root and /dashboard explicitly before static
+app.get('/', (req, res) => {
+  if (req.session?.admin)  return res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  if (req.session?.userId) return res.redirect('/dashboard');
+  res.redirect('/login');
+});
+
+app.get('/login', (req, res) => {
+  if (req.session?.admin)  return res.redirect('/');
+  if (req.session?.userId) return res.redirect('/dashboard');
+  res.sendFile(path.join(__dirname, '..', 'public', 'login.html'));
+});
+
+app.get('/dashboard', requireUser, (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // ── RATE LIMITING ──
@@ -166,6 +211,16 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+function requireUser(req, res, next) {
+  if (req.session?.userId) return next();
+  res.status(401).json({ error: 'No autenticado', redirect: '/login' });
+}
+
+function requireUserOrAdmin(req, res, next) {
+  if (req.session?.userId || req.session?.admin) return next();
+  res.status(401).json({ error: 'No autenticado', redirect: '/login' });
+}
+
 async function requireApiKey(req, res, next) {
   const header = req.headers['authorization'] || req.headers['x-api-key'] || '';
   const raw    = header.startsWith('Bearer ') ? header.slice(7) : header;
@@ -211,6 +266,67 @@ app.get('/api/admin/me', (req, res) => {
   res.status(401).json({ authenticated: false });
 });
 
+// ── USER AUTH ROUTES ──
+app.post('/api/auth/register', loginLimiter, async (req, res) => {
+  const { email, password, name } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Email inválido' });
+  if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  if (name && name.trim().length > 60) return res.status(400).json({ error: 'Nombre demasiado largo' });
+  const exists = await db.findUserByEmail(email);
+  if (exists) return res.status(409).json({ error: 'Ya existe una cuenta con ese email' });
+  const password_hash = await bcrypt.hash(password, 10);
+  const user = await db.createUser(email, password_hash, name);
+  req.session.userId = user.id;
+  req.session.userPlan = user.plan;
+  res.status(201).json({ ok: true, user: { id: user.id, email: user.email, name: user.name, plan: user.plan } });
+});
+
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+  const user = await db.findUserByEmail(email);
+  if (!user) return res.status(401).json({ error: 'Credenciales incorrectas' });
+  if (!user.active) return res.status(403).json({ error: 'Cuenta desactivada. Contacta al soporte.' });
+  const match = await bcrypt.compare(password, user.password_hash);
+  if (!match) return res.status(401).json({ error: 'Credenciales incorrectas' });
+  req.session.userId = user.id;
+  req.session.userPlan = user.plan;
+  res.json({ ok: true, user: { id: user.id, email: user.email, name: user.name, plan: user.plan } });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
+app.get('/api/auth/me', async (req, res) => {
+  if (!req.session?.userId) return res.status(401).json({ authenticated: false });
+  const user = await db.findUserById(req.session.userId);
+  if (!user || !user.active) return res.status(401).json({ authenticated: false });
+  // Sync plan in case it was updated
+  req.session.userPlan = user.plan;
+  const plan = getPlan(user.plan);
+  const urlCount = await db.countUserUrls(user.id);
+  res.json({
+    authenticated: true,
+    user: { id: user.id, email: user.email, name: user.name, plan: user.plan },
+    limits: { ...plan, urlCount, maxUrls: plan.maxUrls === Infinity ? null : plan.maxUrls },
+  });
+});
+
+app.post('/api/auth/change-password', requireUser, async (req, res) => {
+  const { current, newPassword } = req.body || {};
+  if (!current || !newPassword) return res.status(400).json({ error: 'Contraseñas requeridas' });
+  if (newPassword.length < 6) return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres' });
+  const user = await db.findUserById(req.session.userId);
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const match = await bcrypt.compare(current, user.password_hash);
+  if (!match) return res.status(401).json({ error: 'Contraseña actual incorrecta' });
+  const password_hash = await bcrypt.hash(newPassword, 10);
+  await db.updateUserPassword(user.id, password_hash);
+  res.json({ ok: true });
+});
+
 // ── API KEY MANAGEMENT ──
 app.post('/api/keys', requireAdmin, async (req, res) => {
   const { name } = req.body;
@@ -231,8 +347,24 @@ app.delete('/api/keys/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// ── SHORTEN ──
-app.post('/api/shorten', requireAdminOrKey, shortenLimiter, async (req, res) => {
+// ── SHORTEN (admin/key OR user) ──
+app.post('/api/shorten', shortenLimiter, async (req, res, next) => {
+  // Accept admin session, API key, OR user session
+  if (!req.session?.admin && !req.session?.userId) {
+    // Try API key fallback
+    const header = req.headers['authorization'] || req.headers['x-api-key'] || '';
+    const raw = header.startsWith('Bearer ') ? header.slice(7) : header;
+    if (!raw) return res.status(401).json({ error: 'No autenticado' });
+    const entry = await db.findApiKey(hashKey(raw));
+    if (!entry) return res.status(401).json({ error: 'API key inválida o revocada' });
+    await db.touchApiKey(hashKey(raw));
+    req.apiKey = entry;
+  }
+  next();
+}, async (req, res) => {
+  const isUser  = !!req.session?.userId;
+  const isAdmin = !!req.session?.admin || !!req.apiKey;
+
   const { url, alias, max_clicks, expires_at, password,
           utm_source, utm_medium, utm_campaign, utm_term, utm_content,
           show_preview } = req.body;
@@ -253,6 +385,32 @@ app.post('/api/shorten', requireAdminOrKey, shortenLimiter, async (req, res) => 
   }
   if (password && password.length < 4)
     return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
+
+  // ── Plan enforcement for users ──
+  let user_id = null;
+  if (isUser && !isAdmin) {
+    const user = await db.findUserById(req.session.userId);
+    if (!user || !user.active) return res.status(403).json({ error: 'Cuenta inválida' });
+    const plan = getPlan(user.plan);
+    user_id = user.id;
+
+    const urlCount = await db.countUserUrls(user_id);
+    if (plan.maxUrls !== Infinity && urlCount >= plan.maxUrls) {
+      return res.status(403).json({
+        error: `Has alcanzado el límite de ${plan.maxUrls} URLs del plan gratuito.`,
+        plan_limit: true, feature: 'maxUrls',
+      });
+    }
+    if (alias && !plan.customAlias)
+      return res.status(403).json({ error: 'El alias personalizado requiere plan Pro.', plan_required: 'pro', feature: 'customAlias' });
+    if (password && !plan.password)
+      return res.status(403).json({ error: 'La protección con contraseña requiere plan Pro.', plan_required: 'pro', feature: 'password' });
+    if (expires_at && !plan.expiration)
+      return res.status(403).json({ error: 'La fecha de expiración requiere plan Pro.', plan_required: 'pro', feature: 'expiration' });
+    const hasUtmInput = [utm_source, utm_medium, utm_campaign, utm_term, utm_content].some(v => v?.trim());
+    if (hasUtmInput && !plan.utm)
+      return res.status(403).json({ error: 'Los parámetros UTM requieren plan Pro.', plan_required: 'pro', feature: 'utm' });
+  }
 
   const code = nanoid(7);
   const password_hash = password ? await bcrypt.hash(password, 10) : null;
@@ -276,6 +434,7 @@ app.post('/api/shorten', requireAdminOrKey, shortenLimiter, async (req, res) => 
       password_hash,
       ...utmParams,
       show_preview: !!show_preview,
+      user_id,
     });
   } catch (err) {
     if (isDuplicateKey(err))
@@ -366,10 +525,60 @@ app.post('/api/unlock/:code', unlockLimiter, async (req, res) => {
   res.json({ url: entry.original });
 });
 
-// ── ADMIN ROUTES ──
-app.put('/api/urls/:code', requireAdmin, async (req, res) => {
+// ── HELPER: check URL ownership ──
+async function ownsUrl(entry, req) {
+  if (req.session?.admin) return true;
+  if (req.session?.userId && entry.user_id === req.session.userId) return true;
+  return false;
+}
+
+// ── URL ROUTES (admin OR user-scoped) ──
+app.get('/api/urls', requireUserOrAdmin, async (req, res) => {
+  const { q = '', status = 'all', sort = 'newest' } = req.query;
+  const user_id = req.session?.admin ? null : req.session.userId;
+  const urls = await db.getAll({ q: q.trim(), status, sort, user_id });
+  res.json(urls.map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u), protected: !!u.password_hash, password_hash: undefined })));
+});
+
+app.get('/api/stats/:code', requireUserOrAdmin, async (req, res) => {
+  const entry = await db.getStats(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  if (!await ownsUrl(entry, req)) return res.status(403).json({ error: 'No autorizado' });
+  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), protected: !!entry.password_hash, password_hash: undefined });
+});
+
+app.get('/api/analytics/:code', requireUserOrAdmin, async (req, res) => {
+  const entry = await db.getStats(req.params.code);
+  if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  if (!await ownsUrl(entry, req)) return res.status(403).json({ error: 'No autorizado' });
+  // Plan check: full analytics only for pro users (admin always has access)
+  if (req.session?.userId && !req.session?.admin) {
+    const user = await db.findUserById(req.session.userId);
+    if (!getPlan(user?.plan).analyticsDetail) {
+      // Return only basic stats
+      const analytics = await db.getAnalytics(entry.code);
+      return res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), protected: !!entry.password_hash, password_hash: undefined, byDay: analytics.byDay, byBrowser: [], byDevice: [], byReferrer: [], byCountry: [], recent: [], plan_limited: true });
+    }
+  }
+  const analytics = await db.getAnalytics(entry.code);
+  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), protected: !!entry.password_hash, password_hash: undefined, ...analytics });
+});
+
+app.put('/api/urls/:code', requireUserOrAdmin, async (req, res) => {
   const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  if (!await ownsUrl(entry, req)) return res.status(403).json({ error: 'No autorizado' });
+
+  // Plan check for users editing
+  if (req.session?.userId && !req.session?.admin) {
+    const user = await db.findUserById(req.session.userId);
+    const plan = getPlan(user?.plan);
+    const { alias, expires_at } = req.body;
+    if (alias && !plan.customAlias)
+      return res.status(403).json({ error: 'El alias personalizado requiere plan Pro.', plan_required: 'pro', feature: 'customAlias' });
+    if (expires_at && !plan.expiration)
+      return res.status(403).json({ error: 'La fecha de expiración requiere plan Pro.', plan_required: 'pro', feature: 'expiration' });
+  }
 
   const { url, alias, max_clicks, expires_at, show_preview } = req.body;
   if (!url || !isValidUrl(url))
@@ -408,37 +617,62 @@ app.put('/api/urls/:code', requireAdmin, async (req, res) => {
   res.json({ ...updated, short: `${BASE_URL}/${updated.alias || updated.code}`, status: urlStatus(updated), protected: !!updated.password_hash, password_hash: undefined });
 });
 
-app.delete('/api/urls/:code', requireAdmin, async (req, res) => {
+app.delete('/api/urls/:code', requireUserOrAdmin, async (req, res) => {
   const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
+  if (!await ownsUrl(entry, req)) return res.status(403).json({ error: 'No autorizado' });
   const info = await db.deleteUrl(entry.code);
   if (info.changes === 0) return res.status(404).json({ error: 'No encontrado' });
   res.json({ ok: true });
 });
 
-app.get('/api/urls', requireAdmin, async (req, res) => {
-  const { q = '', status = 'all', sort = 'newest' } = req.query;
-  const urls = await db.getAll({ q: q.trim(), status, sort });
-  res.json(urls.map(u => ({ ...u, short: `${BASE_URL}/${u.alias || u.code}`, status: urlStatus(u), protected: !!u.password_hash, password_hash: undefined })));
+// ── USER ANALYTICS (aggregate) ──
+app.get('/api/user/analytics', requireUser, async (req, res) => {
+  const user = await db.findUserById(req.session.userId);
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const plan = getPlan(user.plan);
+  const data = await db.getUserAnalytics(req.session.userId);
+  if (!plan.analyticsDetail) {
+    // Only return summary + byDay for free plan
+    return res.json({ ...data, byCountry: [], byBrowser: [], byDevice: [], plan_limited: true });
+  }
+  res.json(data);
 });
 
+// ── EXPORT CSV (user or admin) ──
+app.get('/api/export/csv', requireUserOrAdmin, async (req, res) => {
+  if (req.session?.userId && !req.session?.admin) {
+    const user = await db.findUserById(req.session.userId);
+    if (!getPlan(user?.plan).csvExport)
+      return res.status(403).json({ error: 'La exportación CSV requiere plan Pro.', plan_required: 'pro', feature: 'csvExport' });
+  }
+  const { q = '', status = 'all', sort = 'newest' } = req.query;
+  const user_id = req.session?.admin ? null : req.session?.userId;
+  const urls = await db.getAll({ q: q.trim(), status, sort, user_id });
+  const escape = v => {
+    if (v == null) return '';
+    const str = String(v);
+    return str.includes(',') || str.includes('"') || str.includes('\n')
+      ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const headers = ['Enlace corto','URL original','Código','Alias','Clics','Límite clics','Expira el','Protegida','Estado','Creada el'];
+  const rows = urls.map(u => [
+    `${BASE_URL}/${u.alias || u.code}`, u.original, u.code, u.alias || '',
+    u.clicks, u.max_clicks || '', u.expires_at || '',
+    u.password_hash ? 'Sí' : 'No',
+    urlStatus(u) === 'expired' ? 'Expirada' : 'Activa', u.created_at,
+  ].map(escape).join(','));
+  const csv = [headers.join(','), ...rows].join('\r\n');
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="labshorturl-export-${new Date().toISOString().slice(0,10)}.csv"`);
+  res.send('\uFEFF' + csv);
+});
+
+// ── ADMIN-ONLY: health, API keys listing, global analytics ──
 app.get('/api/urls/:code/health', requireAdmin, async (req, res) => {
   const entry = await db.findByCode(req.params.code);
   if (!entry) return res.status(404).json({ error: 'No encontrado' });
   res.json({ code: entry.alias || entry.code, health_status: entry.health_status, health_code: entry.health_code, last_checked: entry.last_checked });
-});
-
-app.get('/api/stats/:code', requireAdmin, async (req, res) => {
-  const entry = await db.getStats(req.params.code);
-  if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), protected: !!entry.password_hash, password_hash: undefined });
-});
-
-app.get('/api/analytics/:code', requireAdmin, async (req, res) => {
-  const entry = await db.getStats(req.params.code);
-  if (!entry) return res.status(404).json({ error: 'No encontrado' });
-  const analytics = await db.getAnalytics(entry.code);
-  res.json({ ...entry, short: `${BASE_URL}/${entry.alias || entry.code}`, status: urlStatus(entry), protected: !!entry.password_hash, password_hash: undefined, ...analytics });
 });
 
 app.get('/api/qr/:code', apiLimiter, async (req, res) => {
@@ -473,27 +707,6 @@ app.post('/api/health', requireAdmin, async (req, res) => {
   res.json({ checked: await checkStale() });
 });
 
-app.get('/api/export/csv', requireAdmin, async (req, res) => {
-  const { q = '', status = 'all', sort = 'newest' } = req.query;
-  const urls = await db.getAll({ q: q.trim(), status, sort });
-  const escape = v => {
-    if (v == null) return '';
-    const str = String(v);
-    return str.includes(',') || str.includes('"') || str.includes('\n')
-      ? `"${str.replace(/"/g, '""')}"` : str;
-  };
-  const headers = ['Enlace corto','URL original','Código','Alias','Clics','Límite clics','Expira el','Protegida','Estado','Creada el'];
-  const rows = urls.map(u => [
-    `${BASE_URL}/${u.alias || u.code}`, u.original, u.code, u.alias || '',
-    u.clicks, u.max_clicks || '', u.expires_at || '',
-    u.password_hash ? 'Sí' : 'No',
-    urlStatus(u) === 'expired' ? 'Expirada' : 'Activa', u.created_at,
-  ].map(escape).join(','));
-  const csv = [headers.join(','), ...rows].join('\r\n');
-  res.set('Content-Type', 'text/csv; charset=utf-8');
-  res.set('Content-Disposition', `attachment; filename="labshorturl-export-${new Date().toISOString().slice(0,10)}.csv"`);
-  res.send('\uFEFF' + csv);
-});
 
 app.get('/health', async (req, res) => {
   try {
@@ -538,6 +751,25 @@ app.post('/api/superadmin/lock', requireAdmin, (req, res) => {
 app.get('/api/superadmin/stats', requireSuperAdmin, async (req, res) => {
   const stats = await db.getGlobalAnalyticsFull();
   res.json({ ...stats, uptime: Math.floor(process.uptime()) });
+});
+
+// Users management for super admin
+app.get('/api/superadmin/users', requireSuperAdmin, async (req, res) => {
+  const users = await db.getAllUsers();
+  res.json(users);
+});
+
+app.patch('/api/superadmin/users/:id/plan', requireSuperAdmin, async (req, res) => {
+  const { plan } = req.body;
+  if (!PLANS[plan]) return res.status(400).json({ error: 'Plan inválido. Usa: free, pro' });
+  await db.updateUserPlan(parseInt(req.params.id), plan);
+  res.json({ ok: true });
+});
+
+app.patch('/api/superadmin/users/:id/active', requireSuperAdmin, async (req, res) => {
+  const { active } = req.body;
+  await db.toggleUserActive(parseInt(req.params.id), !!active);
+  res.json({ ok: true });
 });
 
 // ── REDIRECT ──

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Iniciar sesión — LabShortURL</title>
+  <title>Acceso — LabShortURL</title>
   <script>if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark');</script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -28,9 +28,8 @@
     }
     .shake { animation: shake 0.4s ease; }
 
-    /* Dark mode */
     .dark .card { background: #1e1b2e !important; border: 1px solid #2d2a42; }
-    .dark .card h1 { color: #f1f0fb; }
+    .dark .card h1, .dark .card h2 { color: #f1f0fb; }
     .dark .card p  { color: #9ca3af; }
     .dark .card input {
       background: #2d2a42 !important;
@@ -39,13 +38,19 @@
     }
     .dark .card input::placeholder { color: #6b7280; }
     .dark .card label { color: #9ca3af; }
+    .dark .tab-active  { color: #a78bfa; border-color: #a78bfa; }
+    .dark .tab-inactive { color: #6b7280; }
+
+    .tab-active   { color: #667eea; border-bottom: 2px solid #667eea; font-weight: 600; }
+    .tab-inactive { color: #9ca3af; border-bottom: 2px solid transparent; }
+    .tab-inactive:hover { color: #667eea; }
   </style>
 </head>
 <body class="gradient-bg min-h-screen flex items-center justify-center px-4">
   <div class="card bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full">
 
     <!-- Logo -->
-    <div class="flex flex-col items-center mb-7">
+    <div class="flex flex-col items-center mb-6">
       <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-3"
            style="background:linear-gradient(135deg,#667eea,#764ba2)">
         <svg width="28" height="28" viewBox="0 0 36 36" fill="none">
@@ -54,88 +59,215 @@
         </svg>
       </div>
       <h1 class="text-xl font-bold text-gray-800">LabShortURL</h1>
-      <p class="text-gray-400 text-sm mt-1">Accede al panel de administración</p>
+      <p class="text-gray-400 text-sm mt-1">Acorta, comparte y analiza tus enlaces</p>
     </div>
 
+    <!-- Tabs -->
+    <div class="flex border-b border-gray-200 mb-6">
+      <button id="tabLogin" onclick="switchTab('login')"
+        class="tab-active flex-1 pb-3 text-sm transition">Iniciar sesión</button>
+      <button id="tabRegister" onclick="switchTab('register')"
+        class="tab-inactive flex-1 pb-3 text-sm transition">Crear cuenta</button>
+    </div>
+
+    <!-- Login form -->
     <form id="loginForm" class="space-y-4">
       <div>
-        <label class="block text-xs font-medium text-gray-500 mb-1">Usuario</label>
-        <input id="userInput" type="text" placeholder="admin" autocomplete="username"
-          class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm transition"
-          required/>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Email</label>
+        <input id="loginEmail" type="email" placeholder="tu@email.com" autocomplete="email"
+          class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm transition" required/>
       </div>
       <div>
         <label class="block text-xs font-medium text-gray-500 mb-1">Contraseña</label>
         <div class="relative">
-          <input id="passInput" type="password" placeholder="••••••••" autocomplete="current-password"
-            class="w-full border border-gray-200 rounded-xl px-4 py-3 pr-12 text-sm transition"
-            required/>
-          <button type="button" onclick="togglePwd()" tabindex="-1"
+          <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password"
+            class="w-full border border-gray-200 rounded-xl px-4 py-3 pr-12 text-sm transition" required/>
+          <button type="button" onclick="togglePwd('loginPass')" tabindex="-1"
             class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-            <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-              <circle cx="12" cy="12" r="3"/>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
             </svg>
           </button>
         </div>
       </div>
-
-      <div id="errorMsg" class="hidden text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-center"></div>
-
-      <button type="submit" id="submitBtn"
-        class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm mt-1">
+      <div id="loginError" class="hidden text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-center"></div>
+      <button type="submit" id="loginBtn"
+        class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm">
         Iniciar sesión
       </button>
+      <!-- Admin hint: hidden link -->
+      <p class="text-center text-xs text-gray-300 mt-1">
+        <a href="#" onclick="showAdminLogin()" class="hover:text-gray-400">acceso admin</a>
+      </p>
     </form>
+
+    <!-- Register form (hidden initially) -->
+    <form id="registerForm" class="space-y-4 hidden">
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Nombre <span class="text-gray-300">(opcional)</span></label>
+        <input id="regName" type="text" placeholder="Tu nombre"
+          class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm transition"/>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Email</label>
+        <input id="regEmail" type="email" placeholder="tu@email.com" autocomplete="email"
+          class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm transition" required/>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Contraseña <span class="text-gray-300">(mín. 6 caracteres)</span></label>
+        <div class="relative">
+          <input id="regPass" type="password" placeholder="••••••••" autocomplete="new-password"
+            class="w-full border border-gray-200 rounded-xl px-4 py-3 pr-12 text-sm transition" required/>
+          <button type="button" onclick="togglePwd('regPass')" tabindex="-1"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="regError" class="hidden text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-center"></div>
+      <button type="submit" id="regBtn"
+        class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm">
+        Crear cuenta gratis
+      </button>
+      <p class="text-xs text-gray-400 text-center">Comienzas con el plan gratuito — puedes actualizar cuando quieras.</p>
+    </form>
+
+    <!-- Admin login form (hidden) -->
+    <form id="adminForm" class="space-y-4 hidden">
+      <p class="text-xs text-gray-400 text-center mb-2">Acceso de administrador</p>
+      <div>
+        <label class="block text-xs font-medium text-gray-500 mb-1">Usuario</label>
+        <input id="adminUser" type="text" placeholder="admin" autocomplete="username"
+          class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm transition" required/>
+      </div>
+      <div>
+        <div class="relative">
+          <input id="adminPass" type="password" placeholder="••••••••" autocomplete="current-password"
+            class="w-full border border-gray-200 rounded-xl px-4 py-3 pr-12 text-sm transition" required/>
+          <button type="button" onclick="togglePwd('adminPass')" tabindex="-1"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="adminError" class="hidden text-red-500 text-sm bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-center"></div>
+      <button type="submit" id="adminBtn"
+        class="btn-primary w-full text-white font-semibold py-3 rounded-xl text-sm">
+        Entrar como admin
+      </button>
+      <button type="button" onclick="switchTab('login')"
+        class="w-full text-gray-400 text-xs py-1 hover:text-gray-600">← Volver</button>
+    </form>
+
   </div>
 
   <script>
-    // If already authenticated, go home
-    fetch('/api/admin/me').then(r => { if (r.ok) window.location.href = '/'; });
+  // Redirect if already logged in
+  fetch('/api/auth/me').then(r => { if (r.ok) window.location.href = '/dashboard'; }).catch(()=>{});
+  fetch('/api/admin/me').then(r => { if (r.ok) window.location.href = '/'; }).catch(()=>{});
 
-    function togglePwd() {
-      const inp = document.getElementById('passInput');
-      inp.type = inp.type === 'password' ? 'text' : 'password';
-    }
+  function togglePwd(id) {
+    const inp = document.getElementById(id);
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+  }
 
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const username = document.getElementById('userInput').value.trim();
-      const password = document.getElementById('passInput').value;
-      const btn      = document.getElementById('submitBtn');
-      const errEl    = document.getElementById('errorMsg');
+  function switchTab(tab) {
+    const tl = document.getElementById('tabLogin');
+    const tr = document.getElementById('tabRegister');
+    document.getElementById('loginForm').classList.toggle('hidden', tab !== 'login');
+    document.getElementById('registerForm').classList.toggle('hidden', tab !== 'register');
+    document.getElementById('adminForm').classList.add('hidden');
+    tl.className = tab === 'login' ? 'tab-active flex-1 pb-3 text-sm transition' : 'tab-inactive flex-1 pb-3 text-sm transition';
+    tr.className = tab === 'register' ? 'tab-active flex-1 pb-3 text-sm transition' : 'tab-inactive flex-1 pb-3 text-sm transition';
+    // Show tabs row
+    document.querySelector('.flex.border-b').classList.remove('hidden');
+  }
 
-      btn.textContent = 'Verificando…';
-      btn.disabled = true;
-      errEl.classList.add('hidden');
+  function showAdminLogin() {
+    document.getElementById('loginForm').classList.add('hidden');
+    document.getElementById('registerForm').classList.add('hidden');
+    document.getElementById('adminForm').classList.remove('hidden');
+    document.querySelector('.flex.border-b').classList.add('hidden');
+  }
 
-      try {
-        const res  = await fetch('/api/admin/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-        const data = await res.json();
+  function shake(inputId, errId, msg) {
+    const el = document.getElementById(inputId);
+    const er = document.getElementById(errId);
+    er.textContent = msg;
+    er.classList.remove('hidden');
+    el.classList.add('shake');
+    setTimeout(() => el.classList.remove('shake'), 400);
+    el.value = '';
+    el.focus();
+  }
 
-        if (!res.ok) {
-          errEl.textContent = data.error || 'Error al iniciar sesión';
-          errEl.classList.remove('hidden');
-          document.getElementById('passInput').classList.add('shake');
-          setTimeout(() => document.getElementById('passInput').classList.remove('shake'), 400);
-          document.getElementById('passInput').value = '';
-          document.getElementById('passInput').focus();
-        } else {
-          window.location.href = '/';
-        }
-      } catch {
-        errEl.textContent = 'Error de conexión. Intenta de nuevo.';
-        errEl.classList.remove('hidden');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Iniciar sesión';
-      }
-    });
+  // ── USER LOGIN ──
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email    = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPass').value;
+    const btn      = document.getElementById('loginBtn');
+    document.getElementById('loginError').classList.add('hidden');
+    btn.textContent = 'Verificando…'; btn.disabled = true;
+    try {
+      const res  = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { shake('loginPass', 'loginError', data.error || 'Error al iniciar sesión'); }
+      else { window.location.href = '/dashboard'; }
+    } catch { shake('loginPass', 'loginError', 'Error de conexión.'); }
+    finally { btn.disabled = false; btn.textContent = 'Iniciar sesión'; }
+  });
+
+  // ── USER REGISTER ──
+  document.getElementById('registerForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name     = document.getElementById('regName').value.trim();
+    const email    = document.getElementById('regEmail').value.trim();
+    const password = document.getElementById('regPass').value;
+    const btn      = document.getElementById('regBtn');
+    document.getElementById('regError').classList.add('hidden');
+    btn.textContent = 'Creando cuenta…'; btn.disabled = true;
+    try {
+      const res  = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name }),
+      });
+      const data = await res.json();
+      if (!res.ok) { shake('regPass', 'regError', data.error || 'Error al registrarse'); }
+      else { window.location.href = '/dashboard'; }
+    } catch { shake('regPass', 'regError', 'Error de conexión.'); }
+    finally { btn.disabled = false; btn.textContent = 'Crear cuenta gratis'; }
+  });
+
+  // ── ADMIN LOGIN ──
+  document.getElementById('adminForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('adminUser').value.trim();
+    const password = document.getElementById('adminPass').value;
+    const btn      = document.getElementById('adminBtn');
+    document.getElementById('adminError').classList.add('hidden');
+    btn.textContent = 'Verificando…'; btn.disabled = true;
+    try {
+      const res  = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { shake('adminPass', 'adminError', data.error || 'Error al iniciar sesión'); }
+      else { window.location.href = '/'; }
+    } catch { shake('adminPass', 'adminError', 'Error de conexión.'); }
+    finally { btn.disabled = false; btn.textContent = 'Entrar como admin'; }
+  });
   </script>
 </body>
 </html>

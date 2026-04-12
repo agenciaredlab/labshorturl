@@ -343,6 +343,34 @@
     </div>
   </div>
 
+  <!-- ── USUARIOS ── -->
+  <div class="card rounded-2xl shadow-lg p-5">
+    <h2 class="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+      Usuarios registrados
+    </h2>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-gray-400 uppercase tracking-wide">
+            <th class="pb-2 font-medium">Usuario</th>
+            <th class="pb-2 font-medium text-center">Plan</th>
+            <th class="pb-2 font-medium text-right">URLs</th>
+            <th class="pb-2 font-medium text-right">Clics</th>
+            <th class="pb-2 font-medium">Registro</th>
+            <th class="pb-2 font-medium text-right">Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="usersBody" class="divide-y divide-gray-100">
+          <tr><td colspan="6" class="py-6 text-center text-gray-400">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- ── RECENT ACTIVITY ── -->
   <div class="card rounded-2xl shadow-lg p-5">
     <h2 class="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
@@ -747,8 +775,74 @@ setInterval(() => {
   document.getElementById('refreshSec').textContent = refreshLeft;
 }, 1000);
 
+// ── USERS ──
+async function loadUsers() {
+  const res = await fetch('/api/superadmin/users');
+  if (!res.ok) return;
+  const users = await res.json();
+  renderUsers(users);
+}
+
+function renderUsers(users) {
+  const tbody = document.getElementById('usersBody');
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-gray-400">Sin usuarios registrados</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(u => `
+    <tr class="activity-row transition-colors">
+      <td class="py-2 pr-3">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-purple-700 bg-purple-100 flex-shrink-0">${(u.name||u.email)[0].toUpperCase()}</div>
+          <div>
+            <p class="text-xs font-medium" style="color:var(--text-main)">${u.name||'—'}</p>
+            <p class="text-[10px]" style="color:var(--text-soft)">${u.email}</p>
+          </div>
+        </div>
+      </td>
+      <td class="py-2 pr-3 text-center">
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${u.plan==='pro'?'bg-amber-100 text-amber-700':'bg-gray-100 text-gray-500'}">${u.plan==='pro'?'⭐ Pro':'Gratis'}</span>
+      </td>
+      <td class="py-2 pr-3 text-right text-xs font-semibold" style="color:var(--text-main)">${u.url_count}</td>
+      <td class="py-2 pr-3 text-right text-xs font-semibold" style="color:var(--text-main)">${u.total_clicks}</td>
+      <td class="py-2 pr-3 text-xs" style="color:var(--text-soft)">${u.created_at?new Date(u.created_at).toLocaleDateString('es-ES'):'—'}</td>
+      <td class="py-2 text-right">
+        <div class="flex gap-1.5 justify-end">
+          ${u.plan==='free'
+            ? `<button onclick="setPlan(${u.id},'pro',this)" class="px-2 py-1 text-[10px] font-bold rounded-lg text-white" style="background:linear-gradient(135deg,#f59e0b,#d97706)">→ Pro</button>`
+            : `<button onclick="setPlan(${u.id},'free',this)" class="px-2 py-1 text-[10px] font-semibold rounded-lg border" style="border-color:var(--border);color:var(--text-soft)">→ Free</button>`
+          }
+          <button onclick="toggleActive(${u.id},${!u.active},this)"
+            class="px-2 py-1 text-[10px] font-semibold rounded-lg border transition ${u.active?'hover:bg-red-50 hover:text-red-500':'hover:bg-emerald-50 hover:text-emerald-600'}"
+            style="border-color:var(--border);color:var(--text-soft)">
+            ${u.active?'Bloquear':'Activar'}
+          </button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+async function setPlan(id, plan, btn) {
+  btn.disabled = true;
+  const res = await fetch(`/api/superadmin/users/${id}/plan`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plan }),
+  });
+  if (res.ok) loadUsers(); else btn.disabled = false;
+}
+
+async function toggleActive(id, active, btn) {
+  btn.disabled = true;
+  const res = await fetch(`/api/superadmin/users/${id}/active`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active }),
+  });
+  if (res.ok) loadUsers(); else btn.disabled = false;
+}
+
 // ── INIT ──
 loadAll();
+loadUsers();
 </script>
 </body>
 </html>

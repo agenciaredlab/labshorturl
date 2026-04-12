@@ -57,6 +57,17 @@ async function init() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_api_key_hash ON api_keys(key_hash);
+
+    CREATE TABLE IF NOT EXISTS users (
+      id            SERIAL PRIMARY KEY,
+      email         TEXT        NOT NULL UNIQUE,
+      password_hash TEXT        NOT NULL,
+      name          TEXT,
+      plan          TEXT        NOT NULL DEFAULT 'free',
+      active        BOOLEAN     NOT NULL DEFAULT TRUE,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
   `);
 
   // Idempotent column migrations — ADD COLUMN IF NOT EXISTS (PostgreSQL 9.6+)
@@ -75,6 +86,7 @@ async function init() {
     `ALTER TABLE urls ADD COLUMN IF NOT EXISTS health_status TEXT    NOT NULL DEFAULT 'unknown'`,
     `ALTER TABLE urls ADD COLUMN IF NOT EXISTS health_code   INTEGER`,
     `ALTER TABLE urls ADD COLUMN IF NOT EXISTS last_checked  TIMESTAMPTZ`,
+    `ALTER TABLE urls ADD COLUMN IF NOT EXISTS user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL`,
   ];
   for (const sql of migrations) {
     await pool.query(sql);
@@ -125,17 +137,17 @@ module.exports = {
   async createUrl(code, original, {
     alias = null, max_clicks = null, expires_at = null, password_hash = null,
     utm_source = null, utm_medium = null, utm_campaign = null,
-    utm_term = null, utm_content = null, show_preview = false,
+    utm_term = null, utm_content = null, show_preview = false, user_id = null,
   } = {}) {
     return pool.query(
       `INSERT INTO urls
          (code, original, alias, max_clicks, expires_at, password_hash,
-          utm_source, utm_medium, utm_campaign, utm_term, utm_content, show_preview)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          utm_source, utm_medium, utm_campaign, utm_term, utm_content, show_preview, user_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [code, original, alias || null, max_clicks || null, expires_at || null,
        password_hash || null, utm_source || null, utm_medium || null,
        utm_campaign || null, utm_term || null, utm_content || null,
-       !!show_preview],
+       !!show_preview, user_id || null],
     );
   },
 
@@ -166,10 +178,17 @@ module.exports = {
     }
   },
 
-  async getAll({ q = '', status = 'all', sort = 'newest' } = {}) {
+  async getAll({ q = '', status = 'all', sort = 'newest', user_id = null } = {}) {
     const conditions = [];
     const params = [];
     let i = 1;
+
+    // Scope to user if user_id provided (omit for admin = see all)
+    if (user_id !== null) {
+      conditions.push(`user_id = $${i}`);
+      params.push(user_id);
+      i++;
+    }
 
     if (q) {
       conditions.push(`(original ILIKE $${i} OR code ILIKE $${i+1} OR alias ILIKE $${i+2})`);
@@ -405,5 +424,93 @@ module.exports = {
         `),
       ]);
     return { summary, byDay, byHour, byCountry, byBrowser, byDevice, byReferrer, recent, topUrls };
+  },
+
+  // ── SUPER ADMIN: USERS LIST ──
+  async getAllUsers() {
+    return queryAll(`
+      SELECT u.id, u.email, u.name, u.plan, u.active, u.created_at,
+             COUNT(ur.id)::int AS url_count,
+             COALESCE(SUM(ur.clicks), 0)::int AS total_clicks
+      FROM users u
+      LEFT JOIN urls ur ON ur.user_id = u.id
+      GROUP BY u.id ORDER BY u.created_at DESC
+    `);
+  },
+
+  async updateUserPlan(id, plan) {
+    return pool.query(`UPDATE users SET plan = $1 WHERE id = $2`, [plan, id]);
+  },
+
+  async toggleUserActive(id, active) {
+    return pool.query(`UPDATE users SET active = $1 WHERE id = $2`, [active, id]);
+  },
+
+  // ── USER AUTH ──
+  async createUser(email, password_hash, name) {
+    const result = await pool.query(
+      `INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING *`,
+      [email.toLowerCase().trim(), password_hash, name?.trim() || null],
+    );
+    return result.rows[0];
+  },
+
+  async findUserByEmail(email) {
+    return queryOne(`SELECT * FROM users WHERE email = $1 LIMIT 1`, [email.toLowerCase().trim()]);
+  },
+
+  async findUserById(id) {
+    return queryOne(`SELECT * FROM users WHERE id = $1 LIMIT 1`, [id]);
+  },
+
+  async countUserUrls(user_id) {
+    const r = await queryOne(`SELECT COUNT(*)::int AS n FROM urls WHERE user_id = $1`, [user_id]);
+    return r?.n || 0;
+  },
+
+  // User-scoped analytics (clicks on the user's URLs)
+  async getUserAnalytics(user_id) {
+    const [summary, byDay, byCountry, byBrowser, byDevice] = await Promise.all([
+      queryOne(`
+        SELECT
+          (SELECT COUNT(*)::int FROM urls WHERE user_id = $1) AS total_urls,
+          COALESCE((SELECT SUM(clicks)::int FROM urls WHERE user_id = $1), 0) AS total_clicks,
+          (SELECT COUNT(*)::int FROM clicks c JOIN urls u ON u.code = c.url_code
+           WHERE u.user_id = $1 AND c.clicked_at >= CURRENT_DATE) AS clicks_today,
+          (SELECT COUNT(*)::int FROM clicks c JOIN urls u ON u.code = c.url_code
+           WHERE u.user_id = $1 AND c.clicked_at >= NOW() - INTERVAL '7 days') AS clicks_7d,
+          (SELECT COUNT(*)::int FROM clicks c JOIN urls u ON u.code = c.url_code
+           WHERE u.user_id = $1 AND c.clicked_at >= NOW() - INTERVAL '30 days') AS clicks_30d
+      `, [user_id]),
+      queryAll(`
+        SELECT TO_CHAR(c.clicked_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS day, COUNT(*)::int AS count
+        FROM clicks c JOIN urls u ON u.code = c.url_code
+        WHERE u.user_id = $1
+        GROUP BY day ORDER BY day DESC LIMIT 30
+      `, [user_id]),
+      queryAll(`
+        SELECT COALESCE(c.country,'Desconocido') AS label, c.country_code, COUNT(*)::int AS count
+        FROM clicks c JOIN urls u ON u.code = c.url_code
+        WHERE u.user_id = $1
+        GROUP BY c.country, c.country_code ORDER BY count DESC LIMIT 10
+      `, [user_id]),
+      queryAll(`
+        SELECT c.ua_browser AS label, COUNT(*)::int AS count
+        FROM clicks c JOIN urls u ON u.code = c.url_code
+        WHERE u.user_id = $1
+        GROUP BY c.ua_browser ORDER BY count DESC LIMIT 8
+      `, [user_id]),
+      queryAll(`
+        SELECT c.ua_device AS label, COUNT(*)::int AS count
+        FROM clicks c JOIN urls u ON u.code = c.url_code
+        WHERE u.user_id = $1
+        GROUP BY c.ua_device ORDER BY count DESC LIMIT 5
+      `, [user_id]),
+    ]);
+    return { summary, byDay, byCountry, byBrowser, byDevice };
+  },
+
+  async updateUserPassword(id, password_hash) {
+    return pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [password_hash, id]);
   },
 };
