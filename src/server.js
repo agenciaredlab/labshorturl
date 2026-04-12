@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const geoip = require('geoip-lite');
 const session = require('express-session');
+const PgSession = require('connect-pg-simple')(session);
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -132,8 +133,14 @@ app.use(helmet({
 
 app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
-// ── SESSION ──
+// ── SESSION (PostgreSQL store — survives restarts and multi-replica) ──
 app.use(session({
+  store: new PgSession({
+    pool: db.pool,           // reuse the existing pg pool
+    tableName: 'sessions',   // auto-created by connect-pg-simple
+    createTableIfMissing: true,
+    pruneSessionInterval: 60 * 15, // prune expired sessions every 15 min
+  }),
   secret: readSecret('SESSION_SECRET', crypto.randomBytes(32).toString('hex')),
   resave: false,
   saveUninitialized: false,
@@ -141,7 +148,7 @@ app.use(session({
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 8 * 60 * 60 * 1000,
+    maxAge: 8 * 60 * 60 * 1000, // 8 hours
   },
 }));
 
