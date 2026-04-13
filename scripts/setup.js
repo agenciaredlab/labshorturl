@@ -231,6 +231,9 @@ function writeEnv(fields, mode, hasEnv) {
     `ADMIN_USER=${fields.adminUser}`,
     `ADMIN_PASS=${fields.adminPass}`,
     '',
+    '# ── Super Admin PIN ──',
+    `SUPERADMIN_PASS=${fields.superadminPass}`,
+    '',
     '# ── Sesión ──',
     `SESSION_SECRET=${fields.sessionSecret}`,
     '',
@@ -239,6 +242,13 @@ function writeEnv(fields, mode, hasEnv) {
     '',
     '# ── Monitoreo ──',
     `SENTRY_DSN=${fields.sentryDsn}`,
+    '',
+    '# ── Pagos — Stripe ──',
+    `STRIPE_SECRET_KEY=${fields.stripeKey}`,
+    `STRIPE_WEBHOOK_SECRET=${fields.stripeWebhook}`,
+    '',
+    '# ── Pagos — MercadoPago ──',
+    `MP_ACCESS_TOKEN=${fields.mpToken}`,
   ];
   fs.writeFileSync(envPath, lines.join('\n') + '\n', { mode: 0o600 });
   ok('.env guardado (permisos 600)');
@@ -258,10 +268,14 @@ function writePortainerEnv(fields) {
     `NODE_ENV=${fields.nodeEnv}`,
     `ADMIN_USER=${fields.adminUser}`,
     `ADMIN_PASS=${fields.adminPass}`,
+    `SUPERADMIN_PASS=${fields.superadminPass}`,
     `SESSION_SECRET=${fields.sessionSecret}`,
     `DATABASE_URL=${fields.databaseUrl}`,
     ...(fields.pgPassword ? [`PG_PASSWORD=${fields.pgPassword}`] : []),
     `SENTRY_DSN=${fields.sentryDsn}`,
+    `STRIPE_SECRET_KEY=${fields.stripeKey}`,
+    `STRIPE_WEBHOOK_SECRET=${fields.stripeWebhook}`,
+    `MP_ACCESS_TOKEN=${fields.mpToken}`,
   ];
   fs.writeFileSync(outPath, lines.join('\n') + '\n');
   ok(`portainer.env guardado → cópialo en Portainer`);
@@ -444,6 +458,37 @@ async function main() {
     info('Sentry: monitoreo de errores en tiempo real. Obtén el DSN en sentry.io');
     const sentryDsn = await ask(rl, `Sentry DSN ${c.dim('(Enter para omitir)')}`, '');
 
+    // ── Super Admin PIN ───────────────────────────────────────────────────
+    blank();
+    info('Super Admin PIN: protege /superadmin con un segundo factor además del admin.');
+    info('Genera uno con: node -e "console.log(require(\'crypto\').randomBytes(16).toString(\'hex\'))"');
+    const superadminPass = await ask(rl, `SUPERADMIN_PASS ${c.dim('(Enter para omitir)')}`, '');
+
+    // ── Pagos ─────────────────────────────────────────────────────────────
+    section('Pagos (opcional)');
+
+    info('Configura los proveedores de pago para el plan Pro.');
+    info('Puedes dejarlo vacío ahora y añadirlo luego en el .env');
+    blank();
+
+    // Stripe
+    console.log(`  ${c.bold('Stripe')} ${c.dim('— tarjetas internacionales (USD · EUR · GBP)')}`);
+    info('Claves en: https://dashboard.stripe.com/apikeys');
+    const stripeKey = await ask(rl, `STRIPE_SECRET_KEY ${c.dim('(Enter para omitir)')}`, '');
+    let stripeWebhook = '';
+    if (stripeKey) {
+      info('Webhook secret en: https://dashboard.stripe.com/webhooks');
+      info(`Endpoint: POST ${baseUrl}/api/payments/stripe/webhook`);
+      info('Eventos: checkout.session.completed, customer.subscription.deleted');
+      stripeWebhook = await ask(rl, `STRIPE_WEBHOOK_SECRET ${c.dim('(Enter para omitir)')}`, '');
+    }
+    blank();
+
+    // MercadoPago
+    console.log(`  ${c.bold('MercadoPago')} ${c.dim('— pagos LATAM (AR · BR · CL · CO · MX · PE · UY)')}`);
+    info('Access Token en: https://www.mercadopago.com/developers/panel/credentials');
+    const mpToken = await ask(rl, `MP_ACCESS_TOKEN ${c.dim('(Enter para omitir)')}`, '');
+
     // ── Resumen ───────────────────────────────────────────────────────────
     blank();
     console.log(c.bold(hr('═')));
@@ -451,15 +496,18 @@ async function main() {
     console.log(c.bold(hr('═')));
     blank();
 
-    const col = (k, v) => console.log(`  ${c.dim(k.padEnd(16))} ${c.cyan(v)}`);
+    const col = (k, v) => console.log(`  ${c.dim(k.padEnd(18))} ${c.cyan(v)}`);
     const dbDisplay = databaseUrl.replace(/:([^:@/]+)@/, ':***@');
-    col('BASE_URL',     baseUrl);
-    col('NODE_ENV',     nodeEnv);
-    col('Puerto',       port || '3000');
-    col('ADMIN_USER',   adminUser);
-    col('DATABASE_URL', dbDisplay);
-    col('Sentry',       sentryDsn ? 'configurado' : 'no configurado');
-    col('Modo deploy',  mode);
+    col('BASE_URL',       baseUrl);
+    col('NODE_ENV',       nodeEnv);
+    col('Puerto',         port || '3000');
+    col('ADMIN_USER',     adminUser);
+    col('DATABASE_URL',   dbDisplay);
+    col('SuperAdmin PIN', superadminPass ? 'configurado' : 'no configurado');
+    col('Sentry',         sentryDsn  ? 'configurado' : 'no configurado');
+    col('Stripe',         stripeKey  ? 'configurado' : 'no configurado');
+    col('MercadoPago',    mpToken    ? 'configurado' : 'no configurado');
+    col('Modo deploy',    mode);
     if (behindProxy) info('Trust proxy + cookies seguras activadas');
 
     blank();
@@ -469,8 +517,11 @@ async function main() {
     const fields = {
       port: port || '3000', baseUrl, nodeEnv,
       adminUser, adminPass, sessionSecret,
+      superadminPass,
       databaseUrl, pgPassword: pgPassword || null,
       sentryDsn,
+      stripeKey, stripeWebhook,
+      mpToken,
     };
 
     // ── Guardar archivos ──────────────────────────────────────────────────
@@ -514,8 +565,12 @@ async function main() {
         ['labshorturl_admin_pass',      adminPass],
         ['labshorturl_session_secret',  sessionSecret],
         ['labshorturl_database_url',    databaseUrl],
-        ...(pgPassword ? [['labshorturl_pg_password', pgPassword]] : []),
-        ...(sentryDsn  ? [['labshorturl_sentry_dsn',  sentryDsn]]  : []),
+        ...(pgPassword      ? [['labshorturl_pg_password',        pgPassword]]      : []),
+        ...(superadminPass  ? [['labshorturl_superadmin_pass',    superadminPass]]  : []),
+        ...(sentryDsn       ? [['labshorturl_sentry_dsn',         sentryDsn]]       : []),
+        ...(stripeKey       ? [['labshorturl_stripe_secret_key',  stripeKey]]       : []),
+        ...(stripeWebhook   ? [['labshorturl_stripe_webhook_secret', stripeWebhook]]: []),
+        ...(mpToken         ? [['labshorturl_mp_access_token',    mpToken]]         : []),
       ];
       for (const [name, value] of secrets) {
         note(`Name: ${c.cyan(name)}  /  Value: ${c.dim(value.length > 40 ? value.slice(0, 40) + '…' : value)}`);
@@ -545,11 +600,15 @@ async function main() {
 
     } else if (mode === 'swarm') {
       step(1, 'Crea los Docker secrets:');
-      if (pgPassword) cmd(`printf '%s' '${pgPassword}' | docker secret create labshorturl_pg_password -`);
-      cmd(`printf '%s' '${adminPass}' | docker secret create labshorturl_admin_pass -`);
-      cmd(`printf '%s' '${sessionSecret}' | docker secret create labshorturl_session_secret -`);
-      cmd(`printf '%s' '${databaseUrl}' | docker secret create labshorturl_database_url -`);
-      if (sentryDsn) cmd(`printf '%s' '${sentryDsn}' | docker secret create labshorturl_sentry_dsn -`);
+      if (pgPassword)    cmd(`printf '%s' '${pgPassword}'    | docker secret create labshorturl_pg_password -`);
+      cmd(`printf '%s' '${adminPass}'    | docker secret create labshorturl_admin_pass -`);
+      cmd(`printf '%s' '${sessionSecret}'| docker secret create labshorturl_session_secret -`);
+      cmd(`printf '%s' '${databaseUrl}'  | docker secret create labshorturl_database_url -`);
+      if (superadminPass) cmd(`printf '%s' '${superadminPass}' | docker secret create labshorturl_superadmin_pass -`);
+      if (sentryDsn)   cmd(`printf '%s' '${sentryDsn}'   | docker secret create labshorturl_sentry_dsn -`);
+      if (stripeKey)   cmd(`printf '%s' '${stripeKey}'   | docker secret create labshorturl_stripe_secret_key -`);
+      if (stripeWebhook) cmd(`printf '%s' '${stripeWebhook}' | docker secret create labshorturl_stripe_webhook_secret -`);
+      if (mpToken)     cmd(`printf '%s' '${mpToken}'     | docker secret create labshorturl_mp_access_token -`);
       step(2, 'Construye la imagen:');
       cmd('docker build -t labshorturl:latest .');
       step(3, 'Despliega el stack:');
