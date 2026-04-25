@@ -65,30 +65,43 @@ if (!process.env.ADMIN_PASS && !fs.existsSync('/run/secrets/ADMIN_PASS')) {
   console.warn('   Define ADMIN_PASS como env var o Docker secret en producción.');
 }
 
-// PIN exclusivo para el Super Admin (opcional pero recomendado)
-const SUPERADMIN_PASS = readSecret('SUPERADMIN_PASS', '');
-
-// ── PAYMENT PROVIDERS ──
-const STRIPE_SECRET_KEY     = readSecret('STRIPE_SECRET_KEY', '');
-const STRIPE_WEBHOOK_SECRET = readSecret('STRIPE_WEBHOOK_SECRET', '');
-const MP_ACCESS_TOKEN       = readSecret('MP_ACCESS_TOKEN', '');
-const MP_WEBHOOK_SECRET     = readSecret('MP_WEBHOOK_SECRET', '');
+// ── CREDENCIALES MUTABLES ──
+// Baseline: env vars / Docker secrets. La DB puede sobreescribir en runtime.
+const _creds = {
+  superadminPass:      readSecret('SUPERADMIN_PASS', ''),
+  stripeSecretKey:     readSecret('STRIPE_SECRET_KEY', ''),
+  stripeWebhookSecret: readSecret('STRIPE_WEBHOOK_SECRET', ''),
+  mpAccessToken:       readSecret('MP_ACCESS_TOKEN', ''),
+  mpWebhookSecret:     readSecret('MP_WEBHOOK_SECRET', ''),
+};
 
 let _stripe = null;
+let _mpClient = null;
+
+function invalidatePaymentClients() { _stripe = null; _mpClient = null; }
+
 function getStripe() {
-  if (!STRIPE_SECRET_KEY) return null;
-  if (!_stripe) _stripe = require('stripe')(STRIPE_SECRET_KEY);
+  if (!_creds.stripeSecretKey) return null;
+  if (!_stripe) _stripe = require('stripe')(_creds.stripeSecretKey);
   return _stripe;
 }
 
-let _mpClient = null;
 function getMPClient() {
-  if (!MP_ACCESS_TOKEN) return null;
+  if (!_creds.mpAccessToken) return null;
   if (!_mpClient) {
     const { MercadoPagoConfig } = require('mercadopago');
-    _mpClient = new MercadoPagoConfig({ accessToken: MP_ACCESS_TOKEN });
+    _mpClient = new MercadoPagoConfig({ accessToken: _creds.mpAccessToken });
   }
   return _mpClient;
+}
+
+async function loadCredentialsFromDB() {
+  const saved = await db.getSetting('credentials');
+  if (!saved) return;
+  for (const key of ['superadminPass', 'stripeSecretKey', 'stripeWebhookSecret', 'mpAccessToken', 'mpWebhookSecret']) {
+    if (saved[key] !== undefined) _creds[key] = saved[key];
+  }
+  invalidatePaymentClients();
 }
 
 // ── PLAN DEFINITIONS ──
@@ -137,7 +150,7 @@ app.post('/api/payments/stripe/webhook', express.raw({ type: 'application/json' 
   const sig = req.headers['stripe-signature'];
   let event;
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
+    event = stripe.webhooks.constructEvent(req.body, sig, _creds.stripeWebhookSecret);
   } catch (err) {
     logError('stripe webhook verify', err);
     return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -280,7 +293,7 @@ function requireAdmin(req, res, next) {
 
 function requireSuperAdmin(req, res, next) {
   if (!req.session?.admin) return res.status(401).json({ error: 'No autenticado', redirect: '/login' });
-  if (SUPERADMIN_PASS && !req.session?.superadmin) {
+  if (_creds.superadminPass && !req.session?.superadmin) {
     return res.status(403).json({ error: 'PIN de Super Admin requerido', locked: true });
   }
   next();
@@ -415,8 +428,8 @@ app.post('/api/auth/change-password', requireUser, async (req, res) => {
 // GET /api/payments/pricing — returns pricing for the user's detected country
 app.get('/api/payments/pricing', (req, res) => {
   const country = pay.getCountryFromReq(req);
-  const stripeActive  = !!STRIPE_SECRET_KEY;
-  const mpActive      = !!MP_ACCESS_TOKEN;
+  const stripeActive  = !!_creds.stripeSecretKey;
+  const mpActive      = !!_creds.mpAccessToken;
   res.json({
     country,
     stripe: stripeActive ? {
@@ -952,12 +965,12 @@ app.get('/superadmin', (req, res) => {
 
 // Unlock: valida el PIN de super admin y lo guarda en sesión
 app.post('/api/superadmin/unlock', requireAdmin, (req, res) => {
-  if (!SUPERADMIN_PASS) {
+  if (!_creds.superadminPass) {
     req.session.superadmin = true;
     return res.json({ ok: true });
   }
   const { pin } = req.body;
-  if (!pin || pin !== SUPERADMIN_PASS) {
+  if (!pin || pin !== _creds.superadminPass) {
     return res.status(403).json({ error: 'PIN incorrecto' });
   }
   req.session.superadmin = true;
@@ -991,6 +1004,46 @@ app.patch('/api/superadmin/users/:id/plan', requireSuperAdmin, async (req, res) 
 app.patch('/api/superadmin/users/:id/active', requireSuperAdmin, async (req, res) => {
   const { active } = req.body;
   await db.toggleUserActive(parseInt(req.params.id), !!active);
+  res.json({ ok: true });
+});
+
+// ── CREDENTIALS MANAGEMENT ──
+const MASKABLE = ['stripeSecretKey', 'stripeWebhookSecret', 'mpAccessToken', 'superadminPass'];
+
+function maskCredential(val) {
+  if (!val) return '';
+  if (val.length <= 8) return '••••••••';
+  return val.slice(0, 6) + '••••' + val.slice(-4);
+}
+
+app.get('/api/superadmin/credentials', requireSuperAdmin, (req, res) => {
+  res.json({
+    superadminPass:      { masked: maskCredential(_creds.superadminPass),      configured: !!_creds.superadminPass },
+    stripeSecretKey:     { masked: maskCredential(_creds.stripeSecretKey),      configured: !!_creds.stripeSecretKey },
+    stripeWebhookSecret: { masked: maskCredential(_creds.stripeWebhookSecret),  configured: !!_creds.stripeWebhookSecret },
+    mpAccessToken:       { masked: maskCredential(_creds.mpAccessToken),        configured: !!_creds.mpAccessToken },
+  });
+});
+
+app.put('/api/superadmin/credentials', requireSuperAdmin, async (req, res) => {
+  const updates = {};
+  for (const key of MASKABLE) {
+    const val = req.body[key];
+    if (typeof val === 'string') updates[key] = val.trim();
+  }
+  if (Object.keys(updates).length === 0)
+    return res.status(400).json({ error: 'No se enviaron credenciales' });
+
+  const existing = await db.getSetting('credentials') || {};
+  const merged = { ...existing, ...updates };
+  // Remove empty strings (clear a credential)
+  for (const key of Object.keys(merged)) { if (!merged[key]) delete merged[key]; }
+
+  await db.setSetting('credentials', merged);
+
+  for (const [key, val] of Object.entries(updates)) _creds[key] = val;
+  invalidatePaymentClients();
+
   res.json({ ok: true });
 });
 
@@ -1081,6 +1134,8 @@ async function start() {
   console.log('✓ Base de datos PostgreSQL lista');
   await pay.loadPricing(db);
   console.log('✓ Precios cargados');
+  await loadCredentialsFromDB();
+  console.log('✓ Credenciales cargadas');
 
   const server = app.listen(PORT, () => {
     console.log(`LabShortURL corriendo en ${BASE_URL}`);
