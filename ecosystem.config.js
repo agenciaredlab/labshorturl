@@ -26,7 +26,8 @@ module.exports = {
     env_production: {
       NODE_ENV:   'production',
       PORT:       3000,
-      // BASE_URL, ADMIN_USER, ADMIN_PASS, SESSION_SECRET, DATABASE_URL — definir en .env
+      // Definir en .env: BASE_URL, ADMIN_USER, ADMIN_PASS, SESSION_SECRET, DATABASE_URL
+      // Pagos (opcionales): SUPERADMIN_PASS, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, MP_ACCESS_TOKEN
     },
 
     // Logs de PM2 (adicionales a los de Morgan)

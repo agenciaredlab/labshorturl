@@ -5,6 +5,12 @@
 #   echo "$(openssl rand -hex 32)" | docker secret create labshorturl_session_secret -
 #   echo "postgresql://labshorturl:CAMBIA_ESTO@db:5432/labshorturl" \
 #                                  | docker secret create labshorturl_database_url -
+#   echo "tu-superadmin-pin"       | docker secret create labshorturl_superadmin_pass -
+#
+# Pagos (opcionales — omitir si no se usan):
+#   echo "sk_live_..."  | docker secret create labshorturl_stripe_secret_key -
+#   echo "whsec_..."    | docker secret create labshorturl_stripe_webhook_secret -
+#   echo "APP-..."      | docker secret create labshorturl_mp_access_token -
 #
 # Desplegar:
 #   docker stack deploy -c docker-stack.yml labshorturl
@@ -50,9 +56,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      BASE_URL: https://tudominio.com   # ← cambia esto
+      BASE_URL: https://tudominio.com   # ← cambia esto antes de desplegar
       ADMIN_USER: admin
-      # ADMIN_PASS, SESSION_SECRET y DATABASE_URL se inyectan vía Docker secrets
+      # Secrets inyectados como variables de entorno por Docker
     secrets:
       - source: labshorturl_admin_pass
         target: ADMIN_PASS
@@ -60,6 +66,15 @@ services:
         target: SESSION_SECRET
       - source: labshorturl_database_url
         target: DATABASE_URL
+      - source: labshorturl_superadmin_pass
+        target: SUPERADMIN_PASS
+      # Pagos — comentar los que no se usen
+      - source: labshorturl_stripe_secret_key
+        target: STRIPE_SECRET_KEY
+      - source: labshorturl_stripe_webhook_secret
+        target: STRIPE_WEBHOOK_SECRET
+      - source: labshorturl_mp_access_token
+        target: MP_ACCESS_TOKEN
     volumes:
       - logs:/app/logs
     deploy:
@@ -102,4 +117,13 @@ secrets:
   labshorturl_session_secret:
     external: true
   labshorturl_database_url:
+    external: true
+  labshorturl_superadmin_pass:
+    external: true
+  # Pagos — comentar los que no se hayan creado
+  labshorturl_stripe_secret_key:
+    external: true
+  labshorturl_stripe_webhook_secret:
+    external: true
+  labshorturl_mp_access_token:
     external: true

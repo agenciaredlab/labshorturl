@@ -252,8 +252,12 @@ function makeStrictLimiter() {
     handler: rateLimitHandler, skipSuccessfulRequests: true,
   });
 }
-const loginLimiter  = makeStrictLimiter();
-const unlockLimiter = makeStrictLimiter();
+const loginLimiter    = makeStrictLimiter();
+const unlockLimiter   = makeStrictLimiter();
+const checkoutLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 10,
+  standardHeaders: true, legacyHeaders: false, handler: rateLimitHandler,
+});
 
 const shortenLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, max: 30,
@@ -427,7 +431,7 @@ app.get('/api/payments/pricing', (req, res) => {
 });
 
 // POST /api/payments/stripe/checkout — create Stripe Checkout session
-app.post('/api/payments/stripe/checkout', requireUser, async (req, res) => {
+app.post('/api/payments/stripe/checkout', checkoutLimiter, requireUser, async (req, res) => {
   const stripe = getStripe();
   if (!stripe) return res.status(503).json({ error: 'Stripe no configurado en este servidor.' });
   const { period } = req.body;
@@ -474,7 +478,7 @@ app.post('/api/payments/stripe/checkout', requireUser, async (req, res) => {
 });
 
 // POST /api/payments/mercadopago/checkout — create MercadoPago Preference (one-time)
-app.post('/api/payments/mercadopago/checkout', requireUser, async (req, res) => {
+app.post('/api/payments/mercadopago/checkout', checkoutLimiter, requireUser, async (req, res) => {
   const mpClient = getMPClient();
   if (!mpClient) return res.status(503).json({ error: 'MercadoPago no configurado en este servidor.' });
   const { period } = req.body;

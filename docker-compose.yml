@@ -33,7 +33,12 @@ services:
       ADMIN_PASS:     ${ADMIN_PASS:-admin123}
       SESSION_SECRET: ${SESSION_SECRET:-dev-secret-local}
       DATABASE_URL:   ${DATABASE_URL:-postgresql://labshorturl:labshorturl@db:5432/labshorturl}
-      SENTRY_DSN:     ${SENTRY_DSN:-}
+      SENTRY_DSN:          ${SENTRY_DSN:-}
+      SUPERADMIN_PASS:     ${SUPERADMIN_PASS:-}
+      STRIPE_SECRET_KEY:   ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      MP_ACCESS_TOKEN:     ${MP_ACCESS_TOKEN:-}
+      MP_WEBHOOK_SECRET:   ${MP_WEBHOOK_SECRET:-}
     volumes:
       - logs:/app/logs
     depends_on:
