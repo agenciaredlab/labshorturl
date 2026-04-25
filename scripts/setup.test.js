@@ -160,6 +160,9 @@ async function testComposeMode() {
     'supersecret99',                  // ADMIN_PASS
     '',                               // PG incluido: sí (default)
     '',                               // Sentry: skip
+    '',                               // SUPERADMIN_PASS: skip
+    '',                               // STRIPE_SECRET_KEY: skip
+    '',                               // MP_ACCESS_TOKEN: skip
     's',                              // guardar
   ];
   let result;
@@ -221,6 +224,9 @@ async function testManualMode() {
     'n',                                                      // PG en localhost: no
     'postgresql://pg_user:pg_pass@10.0.0.5:5432/shorturl',   // DATABASE_URL externa
     'https://xxx@o123.ingest.sentry.io/456',                 // Sentry DSN
+    '',                                                       // SUPERADMIN_PASS: skip
+    '',                                                       // STRIPE_SECRET_KEY: skip
+    '',                                                       // MP_ACCESS_TOKEN: skip
     's',                                                      // guardar
   ];
   let result;
@@ -364,8 +370,11 @@ async function testEnvBackup() {
     '3000',
     'admin',
     'backuppass99',
-    '',
-    '',
+    '',                 // PG bundled
+    '',                 // Sentry: skip
+    '',                 // SUPERADMIN_PASS: skip
+    '',                 // STRIPE_SECRET_KEY: skip
+    '',                 // MP_ACCESS_TOKEN: skip
     's',
   ];
   let result;
