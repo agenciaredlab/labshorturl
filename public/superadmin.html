@@ -434,42 +434,86 @@
 
   <!-- ── CREDENCIALES ── -->
   <div class="card rounded-2xl shadow-lg p-5">
-    <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center justify-between mb-1">
       <h2 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#667eea" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
         </svg>
-        Credenciales y acceso
+        Credenciales y conexiones
       </h2>
       <button onclick="saveCredentials()" id="btnSaveCreds"
         class="text-xs px-3 py-1.5 rounded-lg text-white font-semibold transition"
         style="background:linear-gradient(135deg,#667eea,#764ba2)">
-        Guardar
+        Guardar todo
       </button>
     </div>
-    <p class="text-[11px] text-gray-400 mb-4">Deja un campo vacío para mantener el valor actual. Los valores se guardan cifrados en la base de datos y se aplican sin reiniciar.</p>
-    <div id="credsMsg" class="hidden text-xs px-3 py-2 rounded-lg mb-3"></div>
+    <p class="text-[11px] text-gray-400 mb-4">Deja vacío para mantener el valor actual. Se aplican al instante sin reiniciar el servidor.</p>
+    <div id="credsMsg" class="hidden text-xs px-3 py-2 rounded-lg mb-4"></div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <!-- Acceso -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+
+      <!-- ── Acceso Admin ── -->
       <div class="space-y-3">
-        <p class="text-xs font-bold text-gray-600 mb-2 flex items-center gap-1">
-          <span class="w-2 h-2 rounded-full bg-gray-500 inline-block"></span> Acceso al panel
+        <p class="text-xs font-bold text-gray-600 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-gray-500 inline-block"></span> Acceso — Admin
         </p>
         <div>
-          <label class="text-[11px] text-gray-500 block mb-1">PIN Super Admin</label>
+          <label class="text-[11px] text-gray-500 block mb-1">Usuario admin</label>
+          <div class="flex items-center gap-2">
+            <input id="cred_adminUser" type="text" autocomplete="off"
+              placeholder="Vacío = sin cambios"
+              class="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <span id="badge_adminUser" class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0"></span>
+          </div>
+        </div>
+        <div>
+          <label class="text-[11px] text-gray-500 block mb-1">Contraseña admin</label>
+          <div class="flex items-center gap-2">
+            <input id="cred_adminPass" type="password" autocomplete="new-password"
+              placeholder="Vacío = sin cambios"
+              class="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <span id="badge_adminPass" class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0"></span>
+          </div>
+        </div>
+        <div>
+          <label class="text-[11px] text-gray-500 block mb-1">PIN Super Admin <span class="text-gray-300">(protege /superadmin)</span></label>
           <div class="flex items-center gap-2">
             <input id="cred_superadminPass" type="password" autocomplete="new-password"
               placeholder="Vacío = sin cambios"
               class="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-            <span id="badge_superadminPass" class="text-[10px] px-2 py-0.5 rounded-full font-semibold"></span>
+            <span id="badge_superadminPass" class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0"></span>
           </div>
         </div>
       </div>
 
-      <!-- Stripe -->
+      <!-- ── Servidor ── -->
       <div class="space-y-3">
-        <p class="text-xs font-bold text-indigo-600 mb-2 flex items-center gap-1">
+        <p class="text-xs font-bold text-gray-600 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Servidor
+        </p>
+        <div>
+          <label class="text-[11px] text-gray-500 block mb-1">URL base pública <span class="text-gray-300">(afecta URLs generadas)</span></label>
+          <div class="flex items-center gap-2">
+            <input id="cred_baseUrl" type="url" autocomplete="off"
+              placeholder="https://tudominio.com"
+              class="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <span id="badge_baseUrl" class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0"></span>
+          </div>
+        </div>
+        <div>
+          <label class="text-[11px] text-gray-500 block mb-1">Sentry DSN <span class="text-gray-300">(monitoreo de errores)</span></label>
+          <div class="flex items-center gap-2">
+            <input id="cred_sentryDsn" type="text" autocomplete="off"
+              placeholder="https://xxx@oNNN.ingest.sentry.io/NNN"
+              class="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <span id="badge_sentryDsn" class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Stripe ── -->
+      <div class="space-y-3">
+        <p class="text-xs font-bold text-indigo-600 flex items-center gap-1.5">
           <span class="w-2 h-2 rounded-full bg-indigo-500 inline-block"></span> Stripe
         </p>
         <div>
@@ -478,7 +522,7 @@
             <input id="cred_stripeSecretKey" type="password" autocomplete="new-password"
               placeholder="Vacío = sin cambios"
               class="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-            <span id="badge_stripeSecretKey" class="text-[10px] px-2 py-0.5 rounded-full font-semibold"></span>
+            <span id="badge_stripeSecretKey" class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0"></span>
           </div>
         </div>
         <div>
@@ -487,16 +531,16 @@
             <input id="cred_stripeWebhookSecret" type="password" autocomplete="new-password"
               placeholder="Vacío = sin cambios"
               class="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-            <span id="badge_stripeWebhookSecret" class="text-[10px] px-2 py-0.5 rounded-full font-semibold"></span>
+            <span id="badge_stripeWebhookSecret" class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0"></span>
           </div>
-          <p class="text-[10px] text-gray-400 mt-1">Endpoint: <code class="bg-gray-100 px-1 rounded" id="webhookEndpointHint"></code></p>
+          <p class="text-[10px] text-gray-400 mt-1">Endpoint a registrar en Stripe: <code class="bg-gray-100 px-1 rounded break-all" id="webhookEndpointHint"></code></p>
         </div>
       </div>
 
-      <!-- MercadoPago -->
+      <!-- ── MercadoPago ── -->
       <div class="space-y-3">
-        <p class="text-xs font-bold text-sky-600 mb-2 flex items-center gap-1">
-          <span class="w-2 h-2 rounded-full bg-sky-500 inline-block"></span> MercadoPago <span class="text-gray-400 font-normal text-[10px]">(LATAM)</span>
+        <p class="text-xs font-bold text-sky-600 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-sky-500 inline-block"></span> MercadoPago <span class="text-gray-400 font-normal">(LATAM)</span>
         </p>
         <div>
           <label class="text-[11px] text-gray-500 block mb-1">Access Token <span class="text-gray-300">(APP-...)</span></label>
@@ -504,10 +548,20 @@
             <input id="cred_mpAccessToken" type="password" autocomplete="new-password"
               placeholder="Vacío = sin cambios"
               class="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-            <span id="badge_mpAccessToken" class="text-[10px] px-2 py-0.5 rounded-full font-semibold"></span>
+            <span id="badge_mpAccessToken" class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0"></span>
+          </div>
+        </div>
+        <div>
+          <label class="text-[11px] text-gray-500 block mb-1">Webhook Secret <span class="text-gray-300">(verificación adicional)</span></label>
+          <div class="flex items-center gap-2">
+            <input id="cred_mpWebhookSecret" type="password" autocomplete="new-password"
+              placeholder="Vacío = sin cambios"
+              class="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+            <span id="badge_mpWebhookSecret" class="text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0"></span>
           </div>
         </div>
       </div>
+
     </div>
   </div>
 
@@ -1093,27 +1147,32 @@ async function resetPrices() {
 }
 
 // ── CREDENTIALS ──
-const CRED_KEYS = ['superadminPass', 'stripeSecretKey', 'stripeWebhookSecret', 'mpAccessToken'];
+const CRED_KEYS = [
+  'adminUser', 'adminPass', 'superadminPass',
+  'baseUrl', 'sentryDsn',
+  'stripeSecretKey', 'stripeWebhookSecret',
+  'mpAccessToken', 'mpWebhookSecret',
+];
 
 function setBadge(key, configured) {
   const el = document.getElementById('badge_' + key);
   if (!el) return;
   if (configured) {
-    el.textContent = '✓ configurado';
-    el.className = 'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-700';
+    el.textContent = '✓';
+    el.className = 'text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 bg-emerald-100 text-emerald-700';
   } else {
-    el.textContent = 'no configurado';
-    el.className = 'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-400';
+    el.textContent = '—';
+    el.className = 'text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 bg-gray-100 text-gray-400';
   }
 }
 
 function showCredsMsg(type, text) {
   const el = document.getElementById('credsMsg');
   el.textContent = text;
-  el.className = 'text-xs px-3 py-2 rounded-lg mb-3 ' +
+  el.className = 'text-xs px-3 py-2 rounded-lg mb-4 ' +
     (type === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600');
   el.classList.remove('hidden');
-  setTimeout(() => el.classList.add('hidden'), 4000);
+  setTimeout(() => el.classList.add('hidden'), 5000);
 }
 
 async function loadCredentials() {
@@ -1122,6 +1181,11 @@ async function loadCredentials() {
   const data = await r.json();
   for (const key of CRED_KEYS) {
     if (data[key]) setBadge(key, data[key].configured);
+  }
+  // Show current BASE_URL as placeholder
+  if (data.baseUrl?.configured === false) {
+    const input = document.getElementById('cred_baseUrl');
+    if (input) input.placeholder = window.location.origin;
   }
   const hint = document.getElementById('webhookEndpointHint');
   if (hint) hint.textContent = window.location.origin + '/api/payments/stripe/webhook';
@@ -1134,8 +1198,8 @@ async function saveCredentials() {
 
   const body = {};
   for (const key of CRED_KEYS) {
-    const val = document.getElementById('cred_' + key)?.value?.trim() ?? '';
-    body[key] = val; // empty string = clear/keep (server decides)
+    const input = document.getElementById('cred_' + key);
+    if (input) body[key] = input.value.trim();
   }
 
   const r = await fetch('/api/superadmin/credentials', {
@@ -1145,10 +1209,10 @@ async function saveCredentials() {
   });
 
   btn.disabled = false;
-  btn.textContent = 'Guardar';
+  btn.textContent = 'Guardar todo';
 
   if (r.ok) {
-    showCredsMsg('ok', '✓ Credenciales guardadas y aplicadas');
+    showCredsMsg('ok', '✓ Configuración guardada y aplicada al instante');
     for (const key of CRED_KEYS) {
       const input = document.getElementById('cred_' + key);
       if (input?.value) { setBadge(key, true); input.value = ''; }

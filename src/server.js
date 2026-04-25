@@ -18,7 +18,7 @@ const pay = require('./payments');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+let BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 // ── LOGGING ──
 const LOG_DIR = path.join(__dirname, '..', 'logs');
@@ -49,7 +49,7 @@ function logError(context, err) {
   if (process.env.NODE_ENV === 'production') {
     fs.appendFile(path.join(LOG_DIR, 'error.log'), line, () => {});
   }
-  if (SENTRY_DSN && err instanceof Error) Sentry.captureException(err, { tags: { context } });
+  if (_creds.sentryDsn && err instanceof Error) Sentry.captureException(err, { tags: { context } });
 }
 
 // ── ADMIN CREDENTIALS ──
@@ -58,19 +58,28 @@ function readSecret(envVar, fallback) {
   return process.env[envVar] || fallback;
 }
 
-const ADMIN_USER = readSecret('ADMIN_USER', 'admin');
-const ADMIN_PASS = readSecret('ADMIN_PASS', 'admin123');
+// ── CREDENCIALES MUTABLES ──
+// Baseline: env vars / Docker secrets. El panel de superadmin puede sobreescribir en runtime.
+let ADMIN_USER = readSecret('ADMIN_USER', 'admin');
+let ADMIN_PASS = readSecret('ADMIN_PASS', 'admin123');
 if (!process.env.ADMIN_PASS && !fs.existsSync('/run/secrets/ADMIN_PASS')) {
   console.warn('⚠️  ADVERTENCIA: Usando contraseña de admin por defecto.');
   console.warn('   Define ADMIN_PASS como env var o Docker secret en producción.');
 }
 
-// ── CREDENCIALES MUTABLES ──
-// Baseline: env vars / Docker secrets. La DB puede sobreescribir en runtime.
 const _creds = {
+  // Admin
+  adminUser:           readSecret('ADMIN_USER', 'admin'),
+  adminPass:           readSecret('ADMIN_PASS', 'admin123'),
+  // Superadmin
   superadminPass:      readSecret('SUPERADMIN_PASS', ''),
+  // Servidor
+  baseUrl:             process.env.BASE_URL || `http://localhost:${PORT}`,
+  sentryDsn:           readSecret('SENTRY_DSN', ''),
+  // Stripe
   stripeSecretKey:     readSecret('STRIPE_SECRET_KEY', ''),
   stripeWebhookSecret: readSecret('STRIPE_WEBHOOK_SECRET', ''),
+  // MercadoPago
   mpAccessToken:       readSecret('MP_ACCESS_TOKEN', ''),
   mpWebhookSecret:     readSecret('MP_WEBHOOK_SECRET', ''),
 };
@@ -95,13 +104,21 @@ function getMPClient() {
   return _mpClient;
 }
 
-async function loadCredentialsFromDB() {
-  const saved = await db.getSetting('credentials');
-  if (!saved) return;
-  for (const key of ['superadminPass', 'stripeSecretKey', 'stripeWebhookSecret', 'mpAccessToken', 'mpWebhookSecret']) {
+function applyCredentials(saved) {
+  for (const key of Object.keys(_creds)) {
     if (saved[key] !== undefined) _creds[key] = saved[key];
   }
+  // Sync module-level vars that are used throughout the file
+  if (saved.adminUser !== undefined) ADMIN_USER = _creds.adminUser;
+  if (saved.adminPass !== undefined) ADMIN_PASS = _creds.adminPass;
+  if (saved.baseUrl   !== undefined) BASE_URL   = _creds.baseUrl;
+  if (saved.sentryDsn !== undefined && _creds.sentryDsn) initSentry(_creds.sentryDsn);
   invalidatePaymentClients();
+}
+
+async function loadCredentialsFromDB() {
+  const saved = await db.getSetting('credentials');
+  if (saved) applyCredentials(saved);
 }
 
 // ── PLAN DEFINITIONS ──
@@ -133,13 +150,12 @@ function getPlan(planName) {
 }
 
 // ── SENTRY ──
-const SENTRY_DSN = readSecret('SENTRY_DSN', '');
-if (SENTRY_DSN) {
-  Sentry.init({
-    dsn: SENTRY_DSN,
-    environment: process.env.NODE_ENV || 'development',
-    tracesSampleRate: 0.1,
-  });
+function initSentry(dsn) {
+  if (!dsn) return;
+  Sentry.init({ dsn, environment: process.env.NODE_ENV || 'development', tracesSampleRate: 0.1 });
+}
+if (_creds.sentryDsn) {
+  initSentry(_creds.sentryDsn);
   console.log('✓ Sentry inicializado');
 }
 
@@ -1008,7 +1024,13 @@ app.patch('/api/superadmin/users/:id/active', requireSuperAdmin, async (req, res
 });
 
 // ── CREDENTIALS MANAGEMENT ──
-const MASKABLE = ['stripeSecretKey', 'stripeWebhookSecret', 'mpAccessToken', 'superadminPass'];
+const ALL_CRED_KEYS = [
+  'adminUser', 'adminPass',
+  'superadminPass',
+  'baseUrl', 'sentryDsn',
+  'stripeSecretKey', 'stripeWebhookSecret',
+  'mpAccessToken', 'mpWebhookSecret',
+];
 
 function maskCredential(val) {
   if (!val) return '';
@@ -1017,17 +1039,17 @@ function maskCredential(val) {
 }
 
 app.get('/api/superadmin/credentials', requireSuperAdmin, (req, res) => {
-  res.json({
-    superadminPass:      { masked: maskCredential(_creds.superadminPass),      configured: !!_creds.superadminPass },
-    stripeSecretKey:     { masked: maskCredential(_creds.stripeSecretKey),      configured: !!_creds.stripeSecretKey },
-    stripeWebhookSecret: { masked: maskCredential(_creds.stripeWebhookSecret),  configured: !!_creds.stripeWebhookSecret },
-    mpAccessToken:       { masked: maskCredential(_creds.mpAccessToken),        configured: !!_creds.mpAccessToken },
-  });
+  const out = {};
+  for (const key of ALL_CRED_KEYS) {
+    const val = _creds[key] || '';
+    out[key] = { masked: maskCredential(val), configured: !!val };
+  }
+  res.json(out);
 });
 
 app.put('/api/superadmin/credentials', requireSuperAdmin, async (req, res) => {
   const updates = {};
-  for (const key of MASKABLE) {
+  for (const key of ALL_CRED_KEYS) {
     const val = req.body[key];
     if (typeof val === 'string') updates[key] = val.trim();
   }
@@ -1036,13 +1058,11 @@ app.put('/api/superadmin/credentials', requireSuperAdmin, async (req, res) => {
 
   const existing = await db.getSetting('credentials') || {};
   const merged = { ...existing, ...updates };
-  // Remove empty strings (clear a credential)
-  for (const key of Object.keys(merged)) { if (!merged[key]) delete merged[key]; }
+  // Empty string = remove that credential (revert to env var baseline)
+  for (const key of Object.keys(merged)) { if (merged[key] === '') delete merged[key]; }
 
   await db.setSetting('credentials', merged);
-
-  for (const [key, val] of Object.entries(updates)) _creds[key] = val;
-  invalidatePaymentClients();
+  applyCredentials(updates);
 
   res.json({ ok: true });
 });
@@ -1121,7 +1141,7 @@ app.get('/:code', redirectLimiter, async (req, res) => {
 });
 
 // ── ERROR HANDLER ──
-if (SENTRY_DSN) Sentry.setupExpressErrorHandler(app);
+if (_creds.sentryDsn) Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, _next) => {
   logError(`${req.method} ${req.path}`, err);
