@@ -10,6 +10,19 @@ const pool = new Pool({
 
 // ── SCHEMA ──
 async function init() {
+  // Retry up to 10 times with exponential backoff — needed when DB container starts after app
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      await pool.query('SELECT 1');
+      break;
+    } catch (err) {
+      if (attempt === 10) throw err;
+      const delay = Math.min(1000 * 2 ** (attempt - 1), 30000);
+      console.warn(`DB not ready (attempt ${attempt}/10), retrying in ${delay / 1000}s…`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS urls (
       id            SERIAL PRIMARY KEY,

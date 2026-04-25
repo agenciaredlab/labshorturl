@@ -1,0 +1,125 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  LabShortURL — Stack para Portainer                                  ║
+# ║                                                                      ║
+# ║  Red interna aislada: PostgreSQL NO expone puertos al host           ║
+# ║  ni es alcanzable desde otros stacks o contenedores del VPS.        ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+#
+# ── PASO 1: construir la imagen en el VPS ────────────────────────────
+#
+#   git clone <url-del-repo> labshorturl && cd labshorturl
+#   docker build -t labshorturl:latest .
+#
+#   (Si usas un registry privado: docker pull turegistry/labshorturl:latest
+#    y cambia la clave image: en el servicio app)
+#
+# ── PASO 2: desplegar en Portainer ───────────────────────────────────
+#
+#   Portainer → Stacks → Add Stack → Web editor
+#   Pega el contenido de este archivo.
+#
+#   En la pestaña "Environment variables" define:
+#
+#   Variable              Ejemplo / descripción
+#   ────────────────────  ──────────────────────────────────────────────
+#   PG_PASSWORD           contraseña interna de PostgreSQL (no se expone)
+#                           openssl rand -hex 20
+#   ADMIN_PASS            contraseña del panel /login
+#   SESSION_SECRET        string aleatorio largo
+#                           openssl rand -hex 32
+#   BASE_URL              https://short.tudominio.com  (sin barra final)
+#
+#   Variables opcionales (dejar vacías para omitir):
+#   PORT                  puerto del host (default 3000)
+#   ADMIN_USER            usuario admin (default admin)
+#   SUPERADMIN_PASS       PIN extra para /superadmin
+#   STRIPE_SECRET_KEY     sk_live_...
+#   STRIPE_WEBHOOK_SECRET whsec_...
+#   MP_ACCESS_TOKEN       APP-...
+#   MP_WEBHOOK_SECRET     (verificación adicional de webhooks MP)
+#   SENTRY_DSN            https://...@sentry.io/...
+#
+#   → Deploy the stack
+#
+# ── ACTUALIZAR la app ─────────────────────────────────────────────────
+#
+#   docker build -t labshorturl:latest .          # en el VPS
+#   (Portainer → stack → labshorturl → Update the stack)
+#   ó desde CLI: docker service update --image labshorturl:latest labshorturl_app
+
+version: '3.8'
+
+# ── RED INTERNA ────────────────────────────────────────────────────────
+# Todos los servicios comparten esta red bridge.
+# • db no tiene ports: → PostgreSQL es inalcanzable desde fuera del stack
+# • El nombre de red queda prefijado por Portainer (ej. labshorturl_internal)
+#   evitando colisiones con otras redes del VPS
+networks:
+  internal:
+    driver: bridge
+
+services:
+
+  # ── BASE DE DATOS ────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       labshorturl
+      POSTGRES_USER:     labshorturl
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?Define PG_PASSWORD en Environment variables}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    # Sin ports: — PostgreSQL solo es accesible dentro de la red interna del stack
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labshorturl"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── APLICACIÓN ───────────────────────────────────────────────────────
+  app:
+    image: labshorturl:latest
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV:              production
+      PORT:                  3000
+      BASE_URL:              ${BASE_URL:?Define BASE_URL en Environment variables}
+      ADMIN_USER:            ${ADMIN_USER:-admin}
+      ADMIN_PASS:            ${ADMIN_PASS:?Define ADMIN_PASS en Environment variables}
+      SESSION_SECRET:        ${SESSION_SECRET:?Define SESSION_SECRET en Environment variables}
+      # DATABASE_URL se construye internamente — no necesitas gestionarla por separado
+      DATABASE_URL:          postgresql://labshorturl:${PG_PASSWORD}@db:5432/labshorturl
+      # Opcionales — dejar vacíos para desactivar
+      SUPERADMIN_PASS:       ${SUPERADMIN_PASS:-}
+      STRIPE_SECRET_KEY:     ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      MP_ACCESS_TOKEN:       ${MP_ACCESS_TOKEN:-}
+      MP_WEBHOOK_SECRET:     ${MP_WEBHOOK_SECRET:-}
+      SENTRY_DSN:            ${SENTRY_DSN:-}
+    volumes:
+      - logs:/app/logs
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+# ── VOLÚMENES ─────────────────────────────────────────────────────────
+# Portainer prefija los nombres con el nombre del stack
+# (ej. labshorturl_pg_data, labshorturl_logs)
+# → sin colisión con volúmenes de otros stacks del VPS
+volumes:
+  pg_data:
+  logs:
