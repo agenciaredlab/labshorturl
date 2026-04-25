@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "setup": "node scripts/setup.js"
+    "setup": "node scripts/setup.js",
+    "test": "node scripts/setup.test.js && node scripts/app.test.js",
+    "test:setup": "node scripts/setup.test.js",
+    "test:app": "node scripts/app.test.js"
   },
   "dependencies": {
     "@sentry/node": "^10.48.0",
